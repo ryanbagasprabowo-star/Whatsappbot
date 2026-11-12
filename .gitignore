@@ -1,0 +1,10 @@
+node_modules/
+session/
+.env
+.env.*
+!.env.example
+.npmrc
+*.backup
+*.backup-*
+backup-role-update/
+.DS_Store

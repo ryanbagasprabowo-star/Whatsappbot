@@ -1,0 +1,772 @@
+import fs from 'fs';
+import { createRoles, getRoleInfo } from './roles.js';
+
+import {
+  startNight,
+  resolveNight,
+  handleNightAction
+} from './night.js';
+
+import {
+  startDay,
+  endDay
+} from './day.js';
+
+import {
+  startVoting,
+  handleVote,
+  resolveVoting
+} from './voting.js';
+
+import {
+  checkGameEnd
+} from './game.js';
+
+const lobbies = new Map();
+
+function createHybridPlayers(humanJid) {
+  return [
+    humanJid,
+    'virtual-1@simulation',
+    'virtual-2@simulation',
+    'virtual-3@simulation',
+    'virtual-4@simulation'
+  ];
+}
+
+function normalizeJid(jid) {
+  if (!jid) return '';
+
+  const [user, server] = jid.split('@');
+
+  if (!user || !server) return jid;
+
+  return `${user.split(':')[0]}@${server}`;
+}
+
+function sameJid(first, second) {
+  return normalizeJid(first) === normalizeJid(second);
+}
+
+async function isGroupAdmin(sock, groupJid, senderJids) {
+  const metadata = await sock.groupMetadata(groupJid);
+  const candidates = Array.isArray(senderJids)
+    ? senderJids
+    : [senderJids];
+
+  const participant = metadata.participants.find(p =>
+    candidates.some(jid =>
+      sameJid(jid, p.id) ||
+      sameJid(jid, p.lid)
+    )
+  );
+
+  return participant?.admin === 'admin' ||
+         participant?.admin === 'superadmin';
+}
+
+function findPlayerJid(lobby, senderJids) {
+  const candidates = Array.isArray(senderJids)
+    ? senderJids
+    : [senderJids];
+
+  return lobby.players.find(player => {
+    if (candidates.some(jid => sameJid(player, jid))) {
+      return true;
+    }
+
+    if (
+      lobby.hybrid &&
+      player === lobby.humanJid
+    ) {
+      return (lobby.humanJids || []).some(alias =>
+        candidates.some(jid => sameJid(alias, jid))
+      );
+    }
+
+    return false;
+  }) || null;
+}
+
+async function handleHunterAction(sock, lobby, playerJid, command, groupJid) {
+  if (!lobby.pendingHunterShot || !sameJid(lobby.pendingHunterShot, playerJid)) return false;
+  const args = command.trim().toLowerCase().split(/\s+/);
+  const action = args[1];
+  let targetJid = null;
+  if (action === 'skip') {
+    // Hunter memilih melewati Last Shot.
+  } else if (action === 'shoot') {
+    const input = args[2] || '';
+    if (!input) {
+      await sock.sendMessage(playerJid, {
+        text: lobby.hybrid
+          ? 'Gunakan .ww shoot NOMOR untuk memilih target.'
+          : 'Gunakan .ww shoot NAMA untuk memilih target.'
+      });
+      return true;
+    }
+    if (lobby.hybrid) {
+      const number = Number(input);
+      if (!Number.isInteger(number) || number < 1 || number > lobby.players.length) {
+        await sock.sendMessage(playerJid, { text: '❌ Nomor pemain tidak valid.' });
+        return true;
+      }
+      targetJid = lobby.players[number - 1];
+      targetJid = lobby.players.find(jid =>
+    (lobby.playerNames?.[jid] || '').toLowerCase() === input
+  );
+   } else {
+  if (/^[a-z0-9]+$/.test(input)) {
+    targetJid = lobby.players.find(jid =>
+      (lobby.playerNames?.[jid] || '').toLowerCase() === input
+    );
+  }
+}
+    if (!targetJid || !lobby.alivePlayers.has(targetJid) || sameJid(targetJid, playerJid)) {
+      await sock.sendMessage(playerJid, { text: '❌ Target tidak valid atau sudah gugur. Pilih pemain yang masih hidup.' });
+      return true;
+    }
+    lobby.alivePlayers.delete(targetJid);
+  } else {
+    return false;
+  }
+  const nextPhase = lobby.pendingAfterHunterPhase || 'day';
+  lobby.pendingHunterShot = null;
+  lobby.pendingAfterHunterPhase = null;
+  let announcement;
+  if (targetJid) {
+    const target = lobby.roleAssignments.find(p => p.jid === targetJid);
+    const label = lobby.hybrid
+      ? (targetJid === lobby.humanJid ? 'Pemain Manusia' : 'Pemain Virtual ' + lobby.players.indexOf(targetJid))
+      : (lobby.playerNames?.[targetJid] || 'Pemain');
+    announcement = '🏹 HUNTER LAST SHOT!\n\n🎯 ' + label + ' ikut gugur.\n🎭 Role: ' + target.role;
+  } else {
+    announcement = '🏹 Hunter melewati kesempatan Last Shot.';
+  }
+  await sock.sendMessage(groupJid, { text: announcement });
+  const finished = await checkGameEnd(sock, lobby, groupJid);
+  if (finished) {
+    lobbies.delete(groupJid);
+  } else if (nextPhase === 'night') {
+    await startNight(sock, lobby, groupJid);
+  } else {
+    await startDay(sock, lobby, groupJid);
+  }
+  return true;
+}
+
+export async function handlePrivateNightMessage(sock, senderJid, command) {
+  for (const [groupJid, lobby] of lobbies.entries()) {
+    if (lobby.status !== 'playing') continue;
+    const playerJid = findPlayerJid(lobby, senderJid);
+    if (!playerJid) continue;
+    const normalizedCommand = command.trim().toLowerCase();
+    if (lobby.pendingHunterShot && (normalizedCommand === '.ww shoot' || normalizedCommand.startsWith('.ww shoot ') || normalizedCommand === '.ww skip')) {
+      const handled = await handleHunterAction(sock, lobby, playerJid, command, groupJid);
+      if (handled) return true;
+    }
+    if (
+      normalizedCommand.startsWith('.ww kill ') ||
+      normalizedCommand.startsWith('.ww inspect ') ||
+      normalizedCommand.startsWith('.ww protect ') ||
+      normalizedCommand.startsWith('.ww heal ') ||
+      normalizedCommand.startsWith('.ww poison ') ||
+      normalizedCommand.startsWith('.ww guard ') ||
+      normalizedCommand === '.ww skip'
+    ) {
+      const handled = await handleNightAction(sock, lobby, playerJid, command);
+      if (handled) return true;
+    }
+    if (normalizedCommand.startsWith('.ww pilih ')) {
+      const handled = await handleVote(sock, lobby, playerJid, command);
+      if (handled) return true;
+    }
+  }
+  return false;
+}
+export async function handleLobby(
+  sock,
+  groupJid,
+  senderJid,
+  command,
+  senderJids = [senderJid]
+) {
+  const allSenderJids = [...new Set([
+    senderJid,
+    ...(senderJids || [])
+  ].filter(Boolean))];
+
+  const args = command.trim().toLowerCase().split(/\s+/);
+  const action = args[1];
+
+  if (!action) return false;
+
+  // MENU BANTUAN COMMAND
+  if (action === 'admin') {
+    const admin = await isGroupAdmin(
+      sock,
+      groupJid,
+      allSenderJids
+    );
+
+    const playerHelp =
+      '🐺 BANTUAN PEMAIN\n\n' +
+      '.ww join NAMA — Bergabung ke lobby\n' +
+      '.ww leave — Keluar dari lobby\n' +
+      '.ww players — Melihat daftar pemain\n' +
+      '.ww pilih NAMA — Memberikan suara saat voting\n\n' +
+      'Aksi malam dikirim melalui chat pribadi bot sesuai role.';
+
+    const adminHelp =
+      '👑 BANTUAN ADMIN GRUP\n\n' +
+      '.ww papanda — Membuka lobby baru\n' +
+      '.ww start — Memulai permainan\n' +
+      '.ww day — Memulai diskusi siang\n' +
+      '.ww vote — Mengakhiri diskusi dan memulai voting\n' +
+      '.ww count — Menghitung hasil voting\n' +
+      '.ww night — Memulai fase malam\n' +
+      '.ww resolve — Menyelesaikan aksi malam\n' +
+      '.ww hybrid — Memulai mode hybrid\n' +
+      '.ww test — Menjalankan pengujian\n' +
+      '.ww stop — Membubarkan lobby\n\n' +
+      'Gunakan command sesuai fase permainan.';
+
+    await sock.sendMessage(groupJid, {
+      text: playerHelp + (admin ? '\n\n' + adminHelp : '')
+    });
+
+    return true;
+  }
+
+  const adminOnly = [
+    'papanda',
+    'start',
+    'stop',
+    'test',
+    'night',
+    'resolve',
+    'hybrid',
+    'day',
+    'vote',
+    'count'
+  ];
+
+  if (adminOnly.includes(action)) {
+    const admin = await isGroupAdmin(
+      sock,
+      groupJid,
+      allSenderJids
+    );
+
+    if (!admin) {
+      await sock.sendMessage(groupJid, {
+        text: '⛔ Perintah ini hanya bisa digunakan admin grup.'
+      });
+
+      return true;
+    }
+  }
+
+  // MEMBUKA LOBBY
+  if (action === 'papanda') {
+    if (lobbies.has(groupJid)) {
+      await sock.sendMessage(groupJid, {
+        text:
+          '⚠️ Lobby sudah tersedia.\n' +
+          'Gunakan .ww players untuk melihat pemain.'
+      });
+
+      return true;
+    }
+
+    lobbies.set(groupJid, {
+      players: [],
+      status: 'waiting'
+    });
+
+    await sock.sendMessage(groupJid, {
+      text: '🐼 WELCOME TO PAPANDA WEREWOLF BOT'
+    });
+
+    await sock.sendMessage(groupJid, {
+      sticker: fs.readFileSync(
+        new URL('../assets/papanda-werewolf-sticker.webp', import.meta.url)
+      )
+    });
+
+    await sock.sendMessage(groupJid, {
+      text:
+        '🎮 LOBBY BERHASIL DIBUKA!\n\n' +
+        'Minimal pemain: 5\n' +
+        'Maksimal pemain: 15\n\n' +
+        'Ketik .ww join NAMA untuk bergabung!\n' +
+        'Ketik .ww players untuk melihat pemain.'
+    });
+
+    return true;
+  }
+
+  // MODE SIMULASI
+  if (action === 'test') {
+    const count = Number(args[2] || 8);
+
+    if (
+      !Number.isInteger(count) ||
+      count < 5 ||
+      count > 15
+    ) {
+      await sock.sendMessage(groupJid, {
+        text: 'Gunakan .ww test 5 sampai .ww test 15.'
+      });
+
+      return true;
+    }
+
+    const virtualPlayers = Array.from(
+      { length: count },
+      (_, i) => `virtual-${i + 1}@simulation`
+    );
+
+    const assignments = createRoles(virtualPlayers);
+    const roleCounts = {};
+
+    for (const player of assignments) {
+      roleCounts[player.role] =
+        (roleCounts[player.role] || 0) + 1;
+    }
+
+    const result = assignments.map((player, i) =>
+      `${i + 1}. Pemain Virtual ${i + 1} — ${player.role}`
+    ).join('\n');
+
+    await sock.sendMessage(groupJid, {
+      text:
+        '🧪 WEREWOLF SIMULATION\n\n' +
+        `Jumlah pemain virtual: ${count}\n\n` +
+        '📊 KOMPOSISI ROLE\n' +
+        Object.entries(roleCounts)
+          .map(([role, total]) => `${role}: ${total}`)
+          .join('\n') +
+        '\n\n🎭 HASIL PENGACAKAN\n' +
+        result +
+        '\n\n✅ Simulasi selesai!\n' +
+        'Tidak ada pesan pribadi yang dikirim.'
+    });
+
+    return true;
+  }
+
+  // MODE HYBRID
+  if (action === 'hybrid') {
+    if (lobbies.has(groupJid)) {
+      await sock.sendMessage(groupJid, {
+        text:
+          '⚠️ Masih ada lobby aktif.\n' +
+          'Gunakan .ww stop terlebih dahulu.'
+      });
+
+      return true;
+    }
+
+    const players = createHybridPlayers(senderJid);
+    const assignments = createRoles(players);
+
+    const human = assignments.find(
+      player => player.jid === senderJid
+    );
+
+    const lobby = {
+      players,
+      roleAssignments: assignments,
+      alivePlayers: new Set(players),
+      roleDelivery: new Set([senderJid]),
+      humanJid: senderJid,
+      humanJids: allSenderJids,
+      hybrid: true,
+      status: 'playing',
+      phase: 'day',
+      nightActions: {
+        wolves: new Map(),
+        seer: null,
+        doctor: null
+      }
+    };
+
+    lobbies.set(groupJid, lobby);
+
+    await sock.sendMessage(senderJid, {
+      text:
+        '🐼 WELCOME TO PAPANDA WEREWOLF BOT\n\n' +
+        '🎭 ROLE HYBRID KAMU\n\n' +
+        getRoleInfo(human.role) +
+        '\n\n🔒 Jangan beritahu role kamu kepada siapa pun!'
+    });
+
+    await sock.sendMessage(groupJid, {
+      text:
+        '🐼 PAPANDA WEREWOLF BOT\n\n' +
+        '🎮 MODE HYBRID BERHASIL DIBUAT!\n\n' +
+        '👤 Pemain manusia: 1\n' +
+        '🤖 Pemain virtual: 4\n' +
+        '🎭 Role telah diacak.\n\n' +
+        'Permainan dimulai pada fase siang.'
+    });
+
+    await startDay(sock, lobby, groupJid);
+
+    return true;
+  }
+
+  const lobby = lobbies.get(groupJid);
+
+  if (!lobby) {
+    await sock.sendMessage(groupJid, {
+      text:
+        '❌ Belum ada lobby.\n' +
+        'Admin dapat membuka dengan .ww papanda.'
+    });
+
+    return true;
+  }
+
+  // MEMULAI MALAM
+  if (action === 'night') {
+    await startNight(sock, lobby, groupJid);
+    return true;
+  }
+
+  // MENYELESAIKAN MALAM
+  if (action === 'resolve') {
+    const resolved = await resolveNight(
+      sock,
+      lobby,
+      groupJid
+    );
+
+    if (resolved && !lobby.pendingHunterShot) {
+      const finished = await checkGameEnd(
+        sock,
+        lobby,
+        groupJid
+      );
+
+      if (finished) {
+        lobbies.delete(groupJid);
+      } else {
+        await startDay(sock, lobby, groupJid);
+      }
+    }
+
+    return true;
+  }
+
+  // MENCEGAH PERUBAHAN FASE SAAT HUNTER MENUNGGU LAST SHOT
+  if (lobby.pendingHunterShot && (action === 'day' || action === 'vote')) {
+    await sock.sendMessage(groupJid, {
+      text: '🏹 Hunter masih memiliki kesempatan Last Shot. Tunggu sampai pilihannya selesai.'
+    });
+    return true;
+  }
+
+  // MEMULAI DISKUSI SIANG
+  if (action === 'day') {
+    await startDay(sock, lobby, groupJid);
+    return true;
+  }
+
+  // MEMULAI VOTING
+  if (action === 'vote') {
+    if (lobby.phase === 'day') {
+      const ended = await endDay(sock, lobby, groupJid);
+      if (!ended) return true;
+    }
+
+    await startVoting(sock, lobby, groupJid);
+    return true;
+  }
+
+  // MENGHITUNG HASIL VOTING
+  if (action === 'count') {
+    const resolved = await resolveVoting(
+      sock,
+      lobby,
+      groupJid
+    );
+
+    if (resolved && !lobby.pendingHunterShot) {
+      const finished = await checkGameEnd(
+        sock,
+        lobby,
+        groupJid
+      );
+
+      if (finished) {
+        lobbies.delete(groupJid);
+      } else {
+        await startNight(sock, lobby, groupJid);
+      }
+    }
+
+    return true;
+  }
+
+  // BERGABUNG
+  if (action === 'join') {
+    const playerName = args[2] || '';
+    lobby.playerNames ||= {};
+
+    if (!/^[a-z0-9]+$/.test(playerName)) {
+      await sock.sendMessage(groupJid, {
+        text: '❌ Nama hanya boleh huruf dan angka tanpa spasi. Contoh: .ww join bagas'
+      });
+      return true;
+    }
+
+    if (lobby.status !== 'waiting') {
+      await sock.sendMessage(groupJid, {
+        text: '❌ Lobby sudah ditutup untuk pemain baru.'
+      });
+      return true;
+    }
+
+    if (lobby.players.some(p => sameJid(p, senderJid))) {
+      await sock.sendMessage(groupJid, {
+        text: '⚠️ Kamu sudah terdaftar di lobby!'
+      });
+      return true;
+    }
+
+    if (Object.values(lobby.playerNames).includes(playerName)) {
+      await sock.sendMessage(groupJid, {
+        text: '❌ Nama tersebut sudah digunakan.'
+      });
+      return true;
+    }
+
+    if (lobby.players.length >= 15) {
+      await sock.sendMessage(groupJid, {
+        text: '❌ Lobby sudah penuh! Maksimal 15 pemain.'
+      });
+      return true;
+    }
+
+    lobby.players.push(senderJid);
+    lobby.playerNames[senderJid] = playerName;
+
+    await sock.sendMessage(groupJid, {
+      text: '✅ PEMAIN BERGABUNG: ' + playerName + '\n\n' +
+        'Jumlah pemain: ' + lobby.players.length +
+        '/15\nKetik .ww players untuk melihat pemain.'
+    });
+    return true;
+  }
+
+  // KELUAR
+  if (action === 'leave') {
+    if (lobby.status !== 'waiting') {
+      await sock.sendMessage(groupJid, {
+        text: '❌ Lobby sudah dikunci.'
+      });
+
+      return true;
+    }
+
+    if (!lobby.players.some(p => sameJid(p, senderJid))) {
+      await sock.sendMessage(groupJid, {
+        text: 'Kamu belum bergabung ke lobby.'
+      });
+
+      return true;
+    }
+
+    lobby.playerNames ||= {};
+    const leavingJid = lobby.players.find(player => sameJid(player, senderJid));
+    if (leavingJid) delete lobby.playerNames[leavingJid];
+
+    lobby.players = lobby.players.filter(
+      player => !sameJid(player, senderJid)
+    );
+
+    await sock.sendMessage(groupJid, {
+      text:
+        '👋 Kamu keluar dari lobby.\n' +
+        'Pemain tersisa: ' +
+        lobby.players.length
+    });
+
+    return true;
+  }
+
+  // DAFTAR PEMAIN
+  if (action === 'players') {
+    lobby.playerNames ||= {};
+
+    const entries = await Promise.all(
+      lobby.players.map(async (player) => {
+        let phoneJid = player;
+        if (player.endsWith('@lid')) {
+          try {
+            phoneJid = await sock.signalRepository.lidMapping.getPNForLID(player) || player;
+          } catch {
+            phoneJid = player;
+          }
+        }
+
+        return {
+          name: lobby.playerNames[player] || 'pemain',
+          number: phoneJid.split('@')[0].split(':')[0],
+          phoneJid
+        };
+      })
+    );
+
+    const list = entries.length
+      ? entries.map((p, i) =>
+          (i + 1) + '. ' + p.name + ' (@' + p.number + ')'
+        ).join('\n')
+      : 'Belum ada pemain.';
+
+    await sock.sendMessage(groupJid, {
+      text: '🐺 DAFTAR PEMAIN\n\n' + list +
+        '\n\nJumlah: ' + lobby.players.length +
+        '/15\nStatus: ' + lobby.status,
+      mentions: entries
+        .filter(p => p.phoneJid.endsWith('@s.whatsapp.net'))
+        .map(p => p.phoneJid)
+    });
+
+    return true;
+  }
+
+  // MEMULAI DAN MEMBAGIKAN ROLE
+  if (action === 'start') {
+    if (lobby.status === 'playing') {
+      await sock.sendMessage(groupJid, {
+        text: '⚠️ Permainan sudah dimulai.'
+      });
+
+      return true;
+    }
+
+    if (
+      lobby.status !== 'waiting' &&
+      lobby.status !== 'dealing'
+    ) {
+      await sock.sendMessage(groupJid, {
+        text: '⚠️ Lobby tidak dapat dimulai.'
+      });
+
+      return true;
+    }
+
+    if (
+      lobby.status === 'waiting' &&
+      lobby.players.length < 5
+    ) {
+      await sock.sendMessage(groupJid, {
+        text: '❌ Minimal 5 pemain untuk memulai permainan.'
+      });
+
+      return true;
+    }
+
+    if (!lobby.roleAssignments) {
+      lobby.roleAssignments = createRoles(lobby.players);
+      lobby.roleDelivery = new Set();
+    }
+
+    lobby.status = 'dealing';
+
+    const failed = [];
+
+    for (const player of lobby.roleAssignments) {
+      if (lobby.roleDelivery.has(player.jid)) continue;
+
+      try {
+        await sock.sendMessage(player.jid, {
+          text:
+            '🐼 WELCOME TO PAPANDA WEREWOLF BOT\n\n' +
+            'Permainan segera dimulai!\n\n' +
+            getRoleInfo(player.role) +
+            (
+  (
+    (!lobby.hybrid && player.role === 'Alpha Werewolf') ||
+    (
+      !lobby.hybrid &&
+      player.role === 'Werewolf' &&
+      !lobby.roleAssignments.some(p => p.role === 'Alpha Werewolf')
+    )
+  )
+    ? '\n\n🐺 IDENTITAS TIM WEREWOLF:\n' +
+      lobby.roleAssignments
+        .filter(w => ['Werewolf', 'Alpha Werewolf'].includes(w.role))
+        .map(w => lobby.playerNames?.[w.jid] || 'Pemain')
+        .join('\n') +
+      '\n\n🔒 Informasi ini rahasia.'
+    : ''
+) +
+            '\n\n🔒 Jangan beritahu role kamu kepada pemain lain!'
+        });
+
+        lobby.roleDelivery.add(player.jid);
+      } catch (error) {
+        console.error(
+          'Gagal mengirim role:',
+          player.jid,
+          error
+        );
+
+        failed.push(player.jid);
+      }
+    }
+
+    if (failed.length > 0) {
+      await sock.sendMessage(groupJid, {
+        text:
+          '⚠️ Pembagian role belum selesai.\n\n' +
+          'Ada ' +
+          failed.length +
+          ' pemain yang belum menerima role.\n' +
+          'Admin dapat mencoba kembali dengan .ww start\n\n' +
+          'Role pemain yang sudah menerima pesan tidak akan diacak ulang.'
+      });
+
+      return true;
+    }
+
+    lobby.alivePlayers = new Set(lobby.players);
+    lobby.phase = 'day';
+    lobby.status = 'playing';
+
+    lobby.nightActions = {
+      wolves: new Map(),
+      seer: null,
+      doctor: null
+    };
+
+    await sock.sendMessage(groupJid, {
+      text:
+        '🐼 WELCOME TO PAPANDA WEREWOLF BOT\n\n' +
+        '🎭 PEMBAGIAN ROLE BERHASIL!\n\n' +
+        'Semua pemain telah menerima role melalui chat pribadi.\n\n' +
+        '☀️ Permainan memasuki fase siang.'
+    });
+
+    await startDay(sock, lobby, groupJid);
+
+    return true;
+  }
+
+  // MENUTUP LOBBY
+  if (action === 'stop') {
+    lobbies.delete(groupJid);
+
+    await sock.sendMessage(groupJid, {
+      text: '🛑 Lobby Werewolf telah dihentikan oleh admin.'
+    });
+
+    return true;
+  }
+
+  return false;
+}
