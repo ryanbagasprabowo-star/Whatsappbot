@@ -51,6 +51,50 @@ function getRoleSticker(role) {
   return fs.readFileSync(new URL(stickerPath, import.meta.url));
 }
 
+
+function getLobbyRoleComposition() {
+  const icons = {
+    'Werewolf': '🐺',
+    'Alpha Werewolf': '👑🐺',
+    'Seer': '🔮',
+    'Doctor': '🩺',
+    'Witch': '🧙',
+    'Hunter': '🏹',
+    'Guardian': '🛡️',
+    'Jester': '🤡'
+  };
+
+  return [
+    [5, '5–6 pemain'],
+    [7, '7 pemain'],
+    [8, '8–10 pemain'],
+    [11, '11–15 pemain']
+  ].map(([total, label]) => {
+    const assignments = createRoles(
+      Array.from({ length: total }, (_, i) => `preview-${i}@simulation`)
+    );
+    const counts = {};
+
+    for (const player of assignments) {
+      if (player.role !== 'Villager') {
+        counts[player.role] = (counts[player.role] || 0) + 1;
+      }
+    }
+
+    const wolves = Object.entries(counts)
+      .filter(([role]) => ['Werewolf', 'Alpha Werewolf'].includes(role))
+      .map(([role, count]) => `${icons[role]} ×${count}`)
+      .join(' ');
+
+    const village = Object.entries(counts)
+      .filter(([role]) => !['Werewolf', 'Alpha Werewolf'].includes(role))
+      .map(([role, count]) => `${icons[role]} ×${count}`)
+      .join(' ');
+
+    return `${label}\n🔴 Werewolf: ${wolves}\n🔵 Village: ${village}`;
+  }).join('\n');
+}
+
 function createHybridPlayers(humanJid) {
   return [
     humanJid,
@@ -394,10 +438,6 @@ export async function handleLobby(
     });
 
     await sock.sendMessage(groupJid, {
-      text: '🐼 WELCOME TO PAPANDA WEREWOLF BOT'
-    });
-
-    await sock.sendMessage(groupJid, {
       sticker: fs.readFileSync(
         new URL('../assets/papanda-werewolf-sticker.webp', import.meta.url)
       )
@@ -405,11 +445,14 @@ export async function handleLobby(
 
     await sock.sendMessage(groupJid, {
       text:
-        '🎮 LOBBY BERHASIL DIBUKA!\n\n' +
-        'Minimal pemain: 5\n' +
-        'Maksimal pemain: 15\n\n' +
-        'Ketik .ww join NAMA untuk bergabung!\n' +
-        'Ketik .ww players untuk melihat pemain.'
+        '🐺 *PAPANDA WEREWOLF* 🐼\n' +
+        '_WELCOME TO THE GAME_\n\n' +
+        '👥 *5–15 PEMAIN*\n\n' +
+        '📜 *KOMPOSISI ROLE*\n' +
+        getLobbyRoleComposition() +
+        '\n\n' +
+        'Ketik *.ww join NAMA* untuk bergabung.\n' +
+        '_Gunakan .ww players untuk melihat daftar pemain._'
     });
 
     return true;
