@@ -4,7 +4,9 @@ import { createRoles, getRoleInfo } from './roles.js';
 import {
   startNight,
   resolveNight,
-  handleNightAction
+  handleNightAction,
+  isNightActionsComplete,
+  remindMissingNightActions
 } from './night.js';
 
 import {
@@ -15,7 +17,10 @@ import {
 import {
   startVoting,
   handleVote,
-  resolveVoting
+  resolveVoting,
+  isVotingComplete,
+  remindMissingVotes,
+  autoFillMissingVotes
 } from './voting.js';
 
 import {
@@ -110,6 +115,68 @@ function findPlayerJid(lobby, senderJids) {
   }) || null;
 }
 
+async function finishNightPhase(sock, lobby, groupJid, force = false) {
+  if (lobby.status !== 'playing' || lobby.phase !== 'night') return false;
+
+  const resolved = await resolveNight(
+    sock,
+    lobby,
+    groupJid,
+    force ? { force: true } : {}
+  );
+
+  if (!resolved || lobby.pendingHunterShot) return resolved;
+
+  const finished = await checkGameEnd(sock, lobby, groupJid);
+  if (finished) {
+    lobbies.delete(groupJid);
+  } else {
+    await startDay(sock, lobby, groupJid);
+  }
+
+  return true;
+}
+
+async function finishVotingPhase(sock, lobby, groupJid) {
+  if (lobby.status !== 'playing' || lobby.phase !== 'voting') return false;
+
+  const resolved = await resolveVoting(sock, lobby, groupJid);
+  if (!resolved || lobby.pendingHunterShot) return resolved;
+
+  const finished = await checkGameEnd(sock, lobby, groupJid);
+  if (finished) {
+    lobbies.delete(groupJid);
+  } else {
+    await startNightAndAutoResolve(sock, lobby, groupJid);
+  }
+
+  return true;
+}
+
+async function startNightAndAutoResolve(sock, lobby, groupJid) {
+  await startNight(sock, lobby, groupJid);
+
+  if (
+    lobby.status === 'playing' &&
+    lobby.phase === 'night' &&
+    isNightActionsComplete(lobby)
+  ) {
+    await finishNightPhase(sock, lobby, groupJid);
+  }
+}
+
+async function startVotingAndAutoResolve(sock, lobby, groupJid) {
+  await startVoting(sock, lobby, groupJid);
+
+  if (
+    lobby.status === 'playing' &&
+    lobby.phase === 'voting' &&
+    isVotingComplete(lobby)
+  ) {
+    await finishVotingPhase(sock, lobby, groupJid);
+  }
+}
+
 async function handleHunterAction(sock, lobby, playerJid, command, groupJid) {
   if (!lobby.pendingHunterShot || !sameJid(lobby.pendingHunterShot, playerJid)) return false;
   const args = command.trim().toLowerCase().split(/\s+/);
@@ -170,7 +237,7 @@ async function handleHunterAction(sock, lobby, playerJid, command, groupJid) {
   if (finished) {
     lobbies.delete(groupJid);
   } else if (nextPhase === 'night') {
-    await startNight(sock, lobby, groupJid);
+    await startNightAndAutoResolve(sock, lobby, groupJid);
   } else {
     await startDay(sock, lobby, groupJid);
   }
@@ -197,11 +264,29 @@ export async function handlePrivateNightMessage(sock, senderJid, command) {
       normalizedCommand === '.ww skip'
     ) {
       const handled = await handleNightAction(sock, lobby, playerJid, command);
-      if (handled) return true;
+      if (handled) {
+        if (
+          lobby.status === 'playing' &&
+          lobby.phase === 'night' &&
+          isNightActionsComplete(lobby)
+        ) {
+          await finishNightPhase(sock, lobby, groupJid);
+        }
+        return true;
+      }
     }
     if (normalizedCommand.startsWith('.ww pilih ')) {
       const handled = await handleVote(sock, lobby, playerJid, command);
-      if (handled) return true;
+      if (handled) {
+        if (
+          lobby.status === 'playing' &&
+          lobby.phase === 'voting' &&
+          isVotingComplete(lobby)
+        ) {
+          await finishVotingPhase(sock, lobby, groupJid);
+        }
+        return true;
+      }
     }
   }
   return false;
@@ -245,9 +330,10 @@ export async function handleLobby(
       '.ww start — Memulai permainan\n' +
       '.ww day — Memulai diskusi siang\n' +
       '.ww vote — Mengakhiri diskusi dan memulai voting\n' +
-      '.ww count — Menghitung hasil voting\n' +
+      '.ww check — Memeriksa aksi malam atau voting\n' +
+      '.ww count- — Mengisi voting yang kosong dan menghitung hasil\n' +
       '.ww night — Memulai fase malam\n' +
-      '.ww resolve — Menyelesaikan aksi malam\n' +
+      '.ww resolve- — Memaksa penyelesaian fase malam\n' +
       '.ww hybrid — Memulai mode hybrid\n' +
       '.ww test — Menjalankan pengujian\n' +
       '.ww stop — Membubarkan lobby\n\n' +
@@ -266,11 +352,12 @@ export async function handleLobby(
     'stop',
     'test',
     'night',
-    'resolve',
+    'check',
+    'resolve-',
+    'count-',
     'hybrid',
     'day',
-    'vote',
-    'count'
+    'vote'
   ];
 
   if (adminOnly.includes(action)) {
@@ -465,37 +552,62 @@ export async function handleLobby(
 
   // MEMULAI MALAM
   if (action === 'night') {
-    await startNight(sock, lobby, groupJid);
+    await startNightAndAutoResolve(sock, lobby, groupJid);
     return true;
   }
 
-  // MENYELESAIKAN MALAM
-  if (action === 'resolve') {
-    const resolved = await resolveNight(
-      sock,
-      lobby,
-      groupJid
-    );
-
-    if (resolved && !lobby.pendingHunterShot) {
-      const finished = await checkGameEnd(
-        sock,
-        lobby,
-        groupJid
-      );
-
-      if (finished) {
-        lobbies.delete(groupJid);
+  // MEMERIKSA AKSI SESUAI FASE
+  if (action === 'check') {
+    if (lobby.phase === 'night') {
+      if (!isNightActionsComplete(lobby)) {
+        const missing = await remindMissingNightActions(sock, lobby);
+        await sock.sendMessage(groupJid, {
+          text: '⏳ Masih ada ' + missing.length +
+            ' aksi malam yang belum diterima. Pengingat dikirim melalui chat pribadi.'
+        });
       } else {
-        await startDay(sock, lobby, groupJid);
+        await finishNightPhase(sock, lobby, groupJid);
       }
+      return true;
     }
 
+    if (lobby.phase === 'voting') {
+      if (!isVotingComplete(lobby)) {
+        const missing = await remindMissingVotes(sock, lobby);
+        await sock.sendMessage(groupJid, {
+          text: '⏳ Masih ada ' + missing.length +
+            ' pemain yang belum voting. Pengingat dikirim melalui chat pribadi.'
+        });
+      } else {
+        await finishVotingPhase(sock, lobby, groupJid);
+      }
+      return true;
+    }
+
+    await sock.sendMessage(groupJid, {
+      text: '❌ .ww check hanya dapat digunakan saat fase malam atau voting.'
+    });
+    return true;
+  }
+
+  // MEMAKSA PENYELESAIAN MALAM TANPA MENGISI AKSI KOSONG
+  if (action === 'resolve-') {
+    if (lobby.phase !== 'night') {
+      await sock.sendMessage(groupJid, {
+        text: '❌ .ww resolve- hanya dapat digunakan saat fase malam.'
+      });
+      return true;
+    }
+
+    await finishNightPhase(sock, lobby, groupJid, true);
     return true;
   }
 
   // MENCEGAH PERUBAHAN FASE SAAT HUNTER MENUNGGU LAST SHOT
-  if (lobby.pendingHunterShot && (action === 'day' || action === 'vote')) {
+  if (
+    lobby.pendingHunterShot &&
+    (action === 'day' || action === 'vote')
+  ) {
     await sock.sendMessage(groupJid, {
       text: '🏹 Hunter masih memiliki kesempatan Last Shot. Tunggu sampai pilihannya selesai.'
     });
@@ -515,32 +627,25 @@ export async function handleLobby(
       if (!ended) return true;
     }
 
-    await startVoting(sock, lobby, groupJid);
+    await startVotingAndAutoResolve(sock, lobby, groupJid);
     return true;
   }
 
-  // MENGHITUNG HASIL VOTING
-  if (action === 'count') {
-    const resolved = await resolveVoting(
-      sock,
-      lobby,
-      groupJid
-    );
-
-    if (resolved && !lobby.pendingHunterShot) {
-      const finished = await checkGameEnd(
-        sock,
-        lobby,
-        groupJid
-      );
-
-      if (finished) {
-        lobbies.delete(groupJid);
-      } else {
-        await startNight(sock, lobby, groupJid);
-      }
+  // MENGISI VOTING KOSONG DAN MENGHITUNG HASIL
+  if (action === 'count-') {
+    if (lobby.phase !== "voting" || !lobby.voting?.started) {
+      await sock.sendMessage(groupJid, {
+        text: '❌ .ww count- hanya dapat digunakan saat fase voting.'
+      });
+      return true;
     }
 
+    const filled = autoFillMissingVotes(lobby);
+    await sock.sendMessage(groupJid, {
+      text: '🎲 Voting otomatis mengisi ' + filled +
+        ' suara yang belum masuk.'
+    });
+    await finishVotingPhase(sock, lobby, groupJid);
     return true;
   }
 

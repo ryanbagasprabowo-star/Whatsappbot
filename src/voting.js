@@ -14,6 +14,54 @@ function getPlayerLabel(lobby, jid) {
   return lobby.playerNames?.[jid] || 'pemain';
 }
 
+// MEMERIKSA PEMAIN YANG BELUM MELAKUKAN VOTING
+export function getMissingVoters(lobby) {
+  const alive = getAlivePlayers(lobby);
+  const voters = lobby.voting?.voters || new Set();
+
+  return alive.filter(player => !voters.has(player.jid));
+}
+
+export function isVotingComplete(lobby) {
+  return getMissingVoters(lobby).length === 0;
+}
+
+export async function remindMissingVotes(sock, lobby) {
+  const missing = getMissingVoters(lobby);
+
+  for (const player of missing) {
+    if (lobby.hybrid && player.jid !== lobby.humanJid) continue;
+
+    await sock.sendMessage(player.jid, {
+      text:
+        '⏳ VOTING BELUM DITERIMA!\n\n' +
+        'Kamu belum mengirim suara. Silakan kirim pilihan melalui chat pribadi bot.'
+    });
+  }
+
+  return missing;
+}
+
+export function autoFillMissingVotes(lobby) {
+  const missing = getMissingVoters(lobby);
+  const alive = getAlivePlayers(lobby);
+  let filled = 0;
+
+  for (const player of missing) {
+    const targets = alive.filter(target => target.jid !== player.jid);
+
+    if (!targets.length) continue;
+
+    const target = targets[Math.floor(Math.random() * targets.length)];
+
+    lobby.voting.votes.set(player.jid, target.jid);
+    lobby.voting.voters.add(player.jid);
+    filled++;
+  }
+
+  return filled;
+}
+
 export async function startVoting(sock, lobby, groupJid) {
   if (lobby.status !== 'playing' || lobby.phase !== 'voting') {
     await sock.sendMessage(groupJid, {
@@ -91,7 +139,7 @@ export async function startVoting(sock, lobby, groupJid) {
       '🗳️ VOTING TELAH DIMULAI!\n\n' +
       'Silakan kirim pilihan melalui chat pribadi bot.\n' +
       'Admin dapat menyelesaikan voting dengan:\n' +
-      '.ww count'
+      '.ww check'
   });
 
   return true;

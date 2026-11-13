@@ -103,6 +103,56 @@ function initializeNightActions(lobby) {
   }
 }
 
+// MEMERIKSA PEMAIN YANG BELUM MELAKUKAN AKSI MALAM
+export function getMissingNightActors(lobby) {
+  const alive = getAlivePlayers(lobby);
+  const actions = lobby.nightActions || {};
+  const missing = [];
+
+  for (const player of alive.filter(p => isWolf(p.role))) {
+    if (!actions.wolves?.has(player.jid)) missing.push(player);
+  }
+
+  const seer = alive.find(p => p.role === 'Seer');
+  if (seer && !actions.seer) missing.push(seer);
+
+  const doctor = alive.find(p => p.role === 'Doctor');
+  if (doctor && !actions.doctor) missing.push(doctor);
+
+  const witch = alive.find(p => p.role === 'Witch');
+  if (
+
+    witch &&
+    !actions.witchDone &&
+    !(lobby.witchPotions?.healUsed && lobby.witchPotions?.poisonUsed)
+  ) missing.push(witch);
+
+  const guardian = alive.find(p => p.role === 'Guardian');
+  if (guardian && !actions.guardianDone) missing.push(guardian);
+
+  return missing;
+}
+
+export function isNightActionsComplete(lobby) {
+  return getMissingNightActors(lobby).length === 0;
+}
+
+export async function remindMissingNightActions(sock, lobby) {
+  const missing = getMissingNightActors(lobby);
+
+  for (const player of missing) {
+    if (lobby.hybrid && player.jid !== lobby.humanJid) continue;
+
+    await sock.sendMessage(player.jid, {
+      text:
+        '⏳ AKSI MALAM BELUM DITERIMA!\n\n' +
+        'Aksi role kamu belum tercatat. Silakan kirim aksi sesuai instruksi bot.'
+    });
+  }
+
+  return missing;
+}
+
 // MEMULAI FASE MALAM
 export async function startNight(sock, lobby, groupJid) {
   if (lobby.hybrid) {
@@ -295,7 +345,7 @@ export async function startHybridNight(sock, lobby, groupJid) {
       '🌙 MALAM TELAH TIBA!\n\n' +
       '🤖 Pemain virtual telah menjalankan aksi otomatis.\n' +
       '👤 Jika role kamu membutuhkan aksi, periksa chat pribadi bot.\n\n' +
-      'Admin gunakan .ww resolve setelah semua aksi selesai.'
+      'Admin gunakan .ww check untuk memeriksa aksi yang belum masuk. Fase malam akan berlanjut otomatis setelah semua aksi lengkap.'
   });
 
   return true;
@@ -551,7 +601,8 @@ export async function handleNightAction(
 }
 
 // MENYELESAIKAN FASE MALAM
-export async function resolveNight(sock, lobby, groupJid) {
+export async function resolveNight(sock, lobby, groupJid, options = {}) {
+  const force = options.force === true;
   if (lobby.status !== 'playing' || lobby.phase !== 'night') {
     await sock.sendMessage(groupJid, {
       text: '❌ Tidak sedang dalam fase malam.'
@@ -567,21 +618,21 @@ export async function resolveNight(sock, lobby, groupJid) {
   const witch = alive.find(player => player.role === 'Witch');
   const guardianAlive = alive.some(player => player.role === 'Guardian');
 
-  if (wolves.some(wolf => !lobby.nightActions.wolves.has(wolf.jid))) {
+  if (!force && wolves.some(wolf => !lobby.nightActions.wolves.has(wolf.jid))) {
     await sock.sendMessage(groupJid, {
       text: '⏳ Belum semua Werewolf mengirim pilihan target.'
     });
     return false;
   }
 
-  if (seerAlive && !lobby.nightActions.seer) {
+  if (!force && seerAlive && !lobby.nightActions.seer) {
     await sock.sendMessage(groupJid, {
       text: '⏳ Seer belum melakukan pemeriksaan.'
     });
     return false;
   }
 
-  if (doctorAlive && !lobby.nightActions.doctor) {
+  if (!force && doctorAlive && !lobby.nightActions.doctor) {
     await sock.sendMessage(groupJid, {
       text: '⏳ Doctor belum memilih pemain untuk dilindungi.'
     });
@@ -589,6 +640,7 @@ export async function resolveNight(sock, lobby, groupJid) {
   }
 
   if (
+    !force &&
     witch &&
     !lobby.nightActions.witchDone &&
     !(lobby.witchPotions.healUsed && lobby.witchPotions.poisonUsed)
@@ -599,7 +651,7 @@ export async function resolveNight(sock, lobby, groupJid) {
     return false;
   }
 
-  if (guardianAlive && !lobby.nightActions.guardianDone) {
+  if (!force && guardianAlive && !lobby.nightActions.guardianDone) {
     await sock.sendMessage(groupJid, {
       text: '⏳ Guardian belum mengirim aksi atau .ww skip.'
     });
