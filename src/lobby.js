@@ -24,6 +24,28 @@ import {
 
 const lobbies = new Map();
 
+const ROLE_STICKER_PATHS = {
+  'Werewolf': '../assets/role-stickers/werewolf.webp',
+  'Alpha Werewolf': '../assets/role-stickers/werewolf%20alpha.webp',
+  'Seer': '../assets/role-stickers/seer.webp',
+  'Doctor': '../assets/role-stickers/doctor.webp',
+  'Witch': '../assets/role-stickers/witch.webp',
+  'Hunter': '../assets/role-stickers/Hunter.webp',
+  'Guardian': '../assets/role-stickers/guardian.webp',
+  'Jester': '../assets/role-stickers/jester.webp',
+  'Villager': '../assets/role-stickers/vilager.webp'
+};
+
+function getRoleSticker(role) {
+  const stickerPath = ROLE_STICKER_PATHS[role];
+
+  if (!stickerPath) {
+    throw new Error(`Stiker untuk role "${role}" tidak ditemukan.`);
+  }
+
+  return fs.readFileSync(new URL(stickerPath, import.meta.url));
+}
+
 function createHybridPlayers(humanJid) {
   return [
     humanJid,
@@ -397,9 +419,21 @@ export async function handleLobby(
     await sock.sendMessage(senderJid, {
       text:
         '🐼 WELCOME TO PAPANDA WEREWOLF BOT\n\n' +
-        '🎭 ROLE HYBRID KAMU\n\n' +
-        getRoleInfo(human.role) +
-        '\n\n🔒 Jangan beritahu role kamu kepada siapa pun!'
+        '🎭 ROLE HYBRID KAMU'
+    });
+
+    await sock.sendMessage(senderJid, {
+      sticker: getRoleSticker(human.role)
+    });
+
+    await sock.sendMessage(senderJid, {
+      text:
+        (
+          ['Werewolf', 'Alpha Werewolf'].includes(human.role)
+            ? ''
+            : getRoleInfo(human.role) + '\n\n'
+        ) +
+        '🔒 Jangan beritahu role kamu kepada siapa pun!'
     });
 
     await sock.sendMessage(groupJid, {
@@ -679,48 +713,94 @@ export async function handleLobby(
 
     const failed = [];
 
-    for (const player of lobby.roleAssignments) {
-      if (lobby.roleDelivery.has(player.jid)) continue;
+    lobby.roleDelivery ||= new Set();
+  lobby.roleWelcomeDelivery ||= new Set();
+  lobby.roleStickerDelivery ||= new Set();
+  lobby.roleInfoDelivery ||= new Set();
 
-      try {
+  for (const player of lobby.roleAssignments) {
+    if (lobby.roleDelivery.has(player.jid)) continue;
+
+    try {
+      if (!lobby.roleWelcomeDelivery.has(player.jid)) {
         await sock.sendMessage(player.jid, {
           text:
             '🐼 WELCOME TO PAPANDA WEREWOLF BOT\n\n' +
-            'Permainan segera dimulai!\n\n' +
-            getRoleInfo(player.role) +
-            (
-  (
-    (!lobby.hybrid && player.role === 'Alpha Werewolf') ||
-    (
-      !lobby.hybrid &&
-      player.role === 'Werewolf' &&
-      !lobby.roleAssignments.some(p => p.role === 'Alpha Werewolf')
-    )
-  )
-    ? '\n\n🐺 IDENTITAS TIM WEREWOLF:\n' +
-      lobby.roleAssignments
-        .filter(w => ['Werewolf', 'Alpha Werewolf'].includes(w.role))
-        .map(w => lobby.playerNames?.[w.jid] || 'Pemain')
-        .join('\n') +
-      '\n\n🔒 Informasi ini rahasia.'
-    : ''
-) +
-            '\n\n🔒 Jangan beritahu role kamu kepada pemain lain!'
+            'Permainan segera dimulai!'
         });
 
-        lobby.roleDelivery.add(player.jid);
-      } catch (error) {
-        console.error(
-          'Gagal mengirim role:',
-          player.jid,
-          error
+        lobby.roleWelcomeDelivery.add(player.jid);
+      }
+
+      if (!lobby.roleStickerDelivery.has(player.jid)) {
+        await sock.sendMessage(player.jid, {
+          sticker: getRoleSticker(player.role)
+        });
+
+        lobby.roleStickerDelivery.add(player.jid);
+      }
+
+      if (!lobby.roleInfoDelivery.has(player.jid)) {
+        const isWolfRole = [
+          'Werewolf',
+          'Alpha Werewolf'
+        ].includes(player.role);
+
+        const hasAlpha = lobby.roleAssignments.some(
+          p => p.role === 'Alpha Werewolf'
         );
 
-        failed.push(player.jid);
-      }
-    }
+        const showWolfTeam =
+          !lobby.hybrid &&
+          (
+            player.role === 'Alpha Werewolf' ||
+            (player.role === 'Werewolf' && !hasAlpha)
+          );
 
-    if (failed.length > 0) {
+        const messageParts = [];
+
+        if (!isWolfRole) {
+          messageParts.push(getRoleInfo(player.role));
+        }
+
+        if (showWolfTeam) {
+          messageParts.push(
+            '🐺 IDENTITAS TIM WEREWOLF:\n' +
+            lobby.roleAssignments
+              .filter(w =>
+                ['Werewolf', 'Alpha Werewolf'].includes(w.role)
+              )
+              .map(w => lobby.playerNames?.[w.jid] || 'Pemain')
+              .join('\n') +
+            '\n\n🔒 Informasi ini rahasia.'
+          );
+        }
+
+        messageParts.push(
+          '🔒 Jangan beritahu role kamu kepada pemain lain!'
+        );
+
+        await sock.sendMessage(player.jid, {
+          text: messageParts.join('\n\n')
+        });
+
+        lobby.roleInfoDelivery.add(player.jid);
+      }
+
+      lobby.roleDelivery.add(player.jid);
+
+    } catch (error) {
+      console.error(
+        'Gagal mengirim role:',
+        player.jid,
+        error
+      );
+
+      failed.push(player.jid);
+    }
+  }
+
+  if (failed.length > 0) {
       await sock.sendMessage(groupJid, {
         text:
           '⚠️ Pembagian role belum selesai.\n\n' +
