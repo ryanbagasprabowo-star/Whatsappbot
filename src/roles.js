@@ -61,31 +61,23 @@ export function createRoles(players) {
 export function getRoleInfo(role) {
   const descriptions = {
     Werewolf:
-      '🐺 WEREWOLF\n\nKamu adalah Werewolf.\nPada malam hari, pilih target bersama Werewolf lainnya.',
-
+      '🐺 *WEREWOLF*\n\n_Kamu adalah Werewolf._\n_Pada malam hari, pilih target bersama anggota Werewolf lainnya._',
     'Alpha Werewolf':
-      '🐺 ALPHA WEREWOLF\n\nKamu adalah pemimpin tim Werewolf.\nPada malam hari, pilih target bersama Werewolf lainnya.\nKamu juga mengetahui identitas seluruh anggota tim Werewolf.',
-
+      '👑🐺 *ALPHA WEREWOLF*\n\n_Kamu adalah pemimpin tim Werewolf._\n_Pada malam hari, pilih target bersama anggota Werewolf lainnya._',
     Seer:
-      '🔮 SEER\n\nKamu adalah Seer.\nPada malam hari, kamu dapat memeriksa identitas seorang pemain.',
-
+      '🔮 *SEER*\n\n_Kamu adalah Seer._\n_Pada malam hari, kamu dapat memeriksa identitas seorang pemain._',
     Doctor:
-      '🩺 DOCTOR\n\nKamu adalah Doctor.\nPada malam hari, kamu dapat memilih seorang pemain untuk dilindungi dari serangan.',
-
+      '🩺 *DOCTOR*\n\n_Kamu adalah Doctor._\n_Pada malam hari, kamu dapat memilih pemain untuk dilindungi dari serangan._',
     Witch:
-      '🧙 WITCH\n\nKamu adalah Witch.\nKamu memiliki satu ramuan penyembuh dan satu ramuan racun.\nMasing-masing ramuan hanya dapat digunakan satu kali selama permainan.',
-
+      '🧙 *WITCH*\n\n_Kamu adalah Witch._\n_Kamu memiliki satu ramuan penyembuh dan satu ramuan racun. Masing-masing hanya dapat digunakan satu kali selama permainan._',
     Hunter:
-      '🏹 HUNTER\n\nKamu adalah Hunter.\nJika kamu gugur, kamu mendapatkan kesempatan Last Shot untuk mengeliminasi satu pemain yang masih hidup.',
-
+      '🏹 *HUNTER*\n\n_Kamu adalah Hunter._\nJika gugur, kamu mendapatkan kesempatan Last Shot untuk mengeliminasi satu pemain yang masih hidup._',
     Guardian:
-      '🛡️ GUARDIAN\n\nKamu adalah Guardian.\nPada malam hari, kamu dapat melindungi seorang pemain dari serangan Werewolf.\nKamu tidak dapat melindungi target yang sama dua malam berturut-turut.',
-
+      '🛡️ *GUARDIAN*\n\n_Kamu adalah Guardian._\nPada malam hari, kamu dapat melindungi seorang pemain dari serangan Werewolf. Kamu tidak dapat melindungi target yang sama dua malam berturut-turut._',
     Jester:
-      '🃏 JESTER\n\nKamu adalah Jester.\nTujuanmu adalah membuat dirimu sendiri tereliminasi melalui voting agar bisa memenangkan permainan.',
-
+      '🃏 *JESTER*\n\n_Kamu adalah Jester._\nTujuanmu adalah tereliminasi melalui voting agar bisa memenangkan permainan._',
     Villager:
-      '👨‍🌾 VILLAGER\n\nKamu adalah Villager.\nDiskusikan siapa yang mencurigakan dan gunakan voting untuk menemukan Werewolf.'
+      '👨‍🌾 *VILLAGER*\n\n_Kamu adalah Villager._\nDiskusikan siapa yang mencurigakan dan gunakan voting untuk menemukan Werewolf._'
   };
 
   return descriptions[role] || 'Role tidak ditemukan.';

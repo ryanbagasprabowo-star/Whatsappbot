@@ -547,23 +547,13 @@ export async function handleLobby(
     lobbies.set(groupJid, lobby);
 
     await sock.sendMessage(senderJid, {
-      text:
-        '🐼 WELCOME TO PAPANDA WEREWOLF BOT\n\n' +
-        '🎭 ROLE HYBRID KAMU'
-    });
-
-    await sock.sendMessage(senderJid, {
       sticker: getRoleSticker(human.role)
     });
 
     await sock.sendMessage(senderJid, {
       text:
-        (
-          ['Werewolf', 'Alpha Werewolf'].includes(human.role)
-            ? ''
-            : getRoleInfo(human.role) + '\n\n'
-        ) +
-        '🔒 Jangan beritahu role kamu kepada siapa pun!'
+        getRoleInfo(human.role) +
+        '\n\n🔒 _Jangan beritahu role kamu kepada siapa pun!_'
     });
 
     await sock.sendMessage(groupJid, {
@@ -870,16 +860,6 @@ export async function handleLobby(
     if (lobby.roleDelivery.has(player.jid)) continue;
 
     try {
-      if (!lobby.roleWelcomeDelivery.has(player.jid)) {
-        await sock.sendMessage(player.jid, {
-          text:
-            '🐼 WELCOME TO PAPANDA WEREWOLF BOT\n\n' +
-            'Permainan segera dimulai!'
-        });
-
-        lobby.roleWelcomeDelivery.add(player.jid);
-      }
-
       if (!lobby.roleStickerDelivery.has(player.jid)) {
         await sock.sendMessage(player.jid, {
           sticker: getRoleSticker(player.role)
@@ -889,11 +869,6 @@ export async function handleLobby(
       }
 
       if (!lobby.roleInfoDelivery.has(player.jid)) {
-        const isWolfRole = [
-          'Werewolf',
-          'Alpha Werewolf'
-        ].includes(player.role);
-
         const hasAlpha = lobby.roleAssignments.some(
           p => p.role === 'Alpha Werewolf'
         );
@@ -907,25 +882,23 @@ export async function handleLobby(
 
         const messageParts = [];
 
-        if (!isWolfRole) {
-          messageParts.push(getRoleInfo(player.role));
-        }
+        messageParts.push(getRoleInfo(player.role));
 
         if (showWolfTeam) {
           messageParts.push(
-            '🐺 IDENTITAS TIM WEREWOLF:\n' +
+            '🐺 *IDENTITAS TIM WEREWOLF*\n' +
             lobby.roleAssignments
               .filter(w =>
                 ['Werewolf', 'Alpha Werewolf'].includes(w.role)
               )
-              .map(w => lobby.playerNames?.[w.jid] || 'Pemain')
+              .map(w => '_' + (lobby.playerNames?.[w.jid] || 'Pemain') + '_')
               .join('\n') +
-            '\n\n🔒 Informasi ini rahasia.'
+            '\n\n🔒 _Informasi ini rahasia._'
           );
         }
 
         messageParts.push(
-          '🔒 Jangan beritahu role kamu kepada pemain lain!'
+          '_🔒 Jangan beritahu role kamu kepada pemain lain!_'
         );
 
         await sock.sendMessage(player.jid, {
