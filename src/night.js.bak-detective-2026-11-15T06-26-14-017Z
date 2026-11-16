@@ -1,0 +1,999 @@
+import { eliminatePlayer, eliminatePlayers } from './elimination.js';
+
+function getAlivePlayers(lobby) {
+  return lobby.roleAssignments.filter(
+    player => lobby.alivePlayers.has(player.jid)
+  );
+}
+
+function isWolf(role) {
+  return (
+    role === 'Werewolf' ||
+    role === 'Alpha Werewolf' ||
+    role === 'Sorcerer'
+  );
+}
+
+function isWolfKiller(role) {
+  return role === 'Werewolf' || role === 'Alpha Werewolf';
+}
+
+function getPlayerList(lobby) {
+  return getAlivePlayers(lobby).map(player => {
+    const number = lobby.players.indexOf(player.jid) + 1;
+    const label = lobby.hybrid
+      ? player.jid === lobby.humanJid
+        ? 'Pemain Manusia'
+        : `Pemain Virtual ${number - 1}`
+      : (lobby.playerNames?.[player.jid] || 'pemain');
+
+    return lobby.hybrid ? `${number}. ${label}` : label;
+  }).join('\n');
+}
+function getRemainingRoleSummary(lobby) {
+  const alive = getAlivePlayers(lobby);
+
+  const factions = {
+    Werewolf: '🔴',
+    'Alpha Werewolf': '🔴',
+    Sorcerer: '🔴',
+    Cupid: '🔵',
+    Detective: '🔵',
+    Villager: '🔵',
+    Seer: '🔵',
+    Doctor: '🔵',
+    Witch: '🔵',
+    Hunter: '🔵',
+    Guardian: '🔵',
+    Jester: '🟣'
+  };
+
+  const roleIcons = {
+    Werewolf: '🐺',
+    'Alpha Werewolf': '👑🐺',
+    Sorcerer: '🔇',
+    Cupid: '💘',
+    Detective: '🔍',
+    Villager: '👤',
+    Seer: '🔮',
+    Doctor: '🩺',
+    Witch: '🧙',
+    Hunter: '🏹',
+    Guardian: '🛡️',
+    Jester: '🤡'
+  };
+
+  const counts = {};
+  for (const player of alive) {
+    counts[player.role] = (counts[player.role] || 0) + 1;
+  }
+
+  const order = [
+    'Werewolf', 'Alpha Werewolf', 'Sorcerer',
+    'Seer', 'Detective', 'Doctor', 'Witch',
+    'Hunter', 'Guardian', 'Cupid', 'Jester', 'Villager'
+  ];
+
+  const roles = [
+    ...order.filter(role => counts[role]),
+    ...Object.keys(counts).filter(role => !order.includes(role)).sort()
+  ];
+
+  const roleList = roles.map(role =>
+    `${roleIcons[role] || '🎭'} ${role}: ${counts[role]} orang ${factions[role] || '⚪'}`
+  ).join('\n');
+
+  const playerList = alive.map((player, index) => {
+    const number = lobby.players.indexOf(player.jid) + 1;
+    const name = lobby.hybrid
+      ? player.jid === lobby.humanJid
+        ? 'Pemain Manusia'
+        : `Pemain Virtual ${number - 1}`
+      : (lobby.playerNames?.[player.jid] || 'Pemain');
+
+    return lobby.hybrid ? `${index + 1}. ${name}` : name;
+  }).join('\n');
+
+  return '👥 *PEMAIN YANG MASIH HIDUP*\n' +
+    playerList +
+    '\n\n📋 *CONS FACTION*\n' +
+    roleList +
+    `\n\n_Total: ${alive.length} pemain masih hidup._`;
+}
+function randomTarget(players, actorJid) {
+  const choices = players.filter(
+    player => player.jid !== actorJid
+  );
+
+  if (!choices.length) return null;
+
+  return choices[Math.floor(Math.random() * choices.length)].jid;
+}
+
+function initializeNightActions(lobby) {
+  lobby.nightActions = {
+    wolves: new Map(),
+    sorcerer: null,
+    mutedTarget: null,
+    seer: null,
+    doctor: null,
+    witchHeal: null,
+    witchPoison: null,
+    guardian: null,
+    witchDone: false,
+    guardianDone: false
+  };
+
+  if (!lobby.witchPotions) {
+    lobby.witchPotions = {
+      healUsed: false,
+      poisonUsed: false
+    };
+  }
+}
+
+// MEMERIKSA PEMAIN YANG BELUM MELAKUKAN AKSI MALAM
+export function getMissingNightActors(lobby) {
+  const alive = getAlivePlayers(lobby);
+  const actions = lobby.nightActions || {};
+  const sorcererAction = actions.sorcerer;
+
+  const mutedTarget =
+    sorcererAction &&
+    lobby.alivePlayers.has(sorcererAction.target)
+      ? sorcererAction.target
+      : null;
+
+  const missing = [];
+
+  for (const player of alive.filter(p => isWolfKiller(p.role))) {
+    if (
+      player.jid !== mutedTarget &&
+      !actions.wolves?.has(player.jid)
+    ) {
+      missing.push(player);
+    }
+  }
+
+  const seer = alive.find(p => p.role === 'Seer');
+  if (seer && seer.jid !== mutedTarget && !actions.seer) {
+    missing.push(seer);
+  }
+
+  const doctor = alive.find(p => p.role === 'Doctor');
+  if (doctor && doctor.jid !== mutedTarget && !actions.doctor) {
+    missing.push(doctor);
+  }
+
+  const witch = alive.find(p => p.role === 'Witch');
+  if (
+    witch &&
+    witch.jid !== mutedTarget &&
+    !actions.witchDone &&
+    !(lobby.witchPotions?.healUsed && lobby.witchPotions?.poisonUsed)
+  ) {
+    missing.push(witch);
+  }
+
+  const guardian = alive.find(p => p.role === 'Guardian');
+  if (
+    guardian &&
+    guardian.jid !== mutedTarget &&
+    !actions.guardianDone
+  ) {
+    missing.push(guardian);
+  }
+
+  const sorcerer = alive.find(p => p.role === 'Sorcerer');
+  if (sorcerer && !actions.sorcerer) {
+    missing.push(sorcerer);
+  }
+
+  return missing;
+}
+export function isNightActionsComplete(lobby) {
+  return getMissingNightActors(lobby).length === 0;
+}
+
+export async function remindMissingNightActions(sock, lobby) {
+  const missing = getMissingNightActors(lobby);
+
+  for (const player of missing) {
+    if (lobby.hybrid && player.jid !== lobby.humanJid) continue;
+
+    await sock.sendMessage(player.jid, {
+      text:
+        '⏳ *MENUNGGU AKSI KAMU*\n\n' +
+        '_Aksi role kamu belum tercatat._\n\n' +
+        '_Silakan kirim aksi sesuai instruksi bot._'
+    });
+  }
+
+  return missing;
+}
+
+// MEMULAI FASE MALAM
+export async function startNight(sock, lobby, groupJid) {
+  if (lobby.hybrid) {
+    return startHybridNight(sock, lobby, groupJid);
+  }
+
+  if (lobby.status !== 'playing') {
+    await sock.sendMessage(groupJid, {
+      text: '❌ Permainan belum dimulai.'
+    });
+    return false;
+  }
+
+  if (lobby.pendingHunterShot) {
+    await sock.sendMessage(groupJid, {
+      text: '🏹 *HUNTER LAST SHOT*\n\n_Hunter masih memiliki kesempatan. Tunggu sampai pilihannya selesai._'
+    });
+    return false;
+  }
+
+  if (lobby.phase === 'night' && lobby.nightInitialized) {
+    await sock.sendMessage(groupJid, {
+      text: '🌙 *NIGHT PHASE*\n\n_Fase malam sedang berlangsung._'
+    });
+    return true;
+  }
+  lobby.phase = 'night';
+  initializeNightActions(lobby);
+  lobby.nightInitialized = true;
+
+  const alive = getAlivePlayers(lobby);
+  const playerList = getPlayerList(lobby);
+
+  const targetFormat = lobby.hybrid ? 'NOMOR' : 'NAMA';
+  const instructions = {
+    Werewolf: '.ww kill ' + targetFormat,
+    'Alpha Werewolf': '.ww kill ' + targetFormat,
+    Sorcerer: '.ww mute ' + targetFormat,
+    Seer: '.ww inspect ' + targetFormat,
+    Doctor: '.ww protect ' + targetFormat,
+    Witch:
+      '.ww heal ' + targetFormat + '\n.ww poison ' + targetFormat + '\n.ww skip',
+    Guardian:
+      '.ww guard ' + targetFormat + '\n.ww skip'
+  };
+
+  for (const player of alive) {
+    if (!instructions[player.role]) continue;
+
+    try {
+      await sock.sendMessage(player.jid, {
+        text:
+          '🌙 *NIGHT PHASE*\n\n' +
+          '_Silakan lakukan aksi sesuai role kamu._\n' +
+          (player.role === 'Witch'
+            ? '*DAFTAR PEMAIN*\n' +
+              playerList +
+              '\n\n_Ingat: setiap ramuan Witch hanya dapat digunakan satu kali._\n\n' +
+              '_.ww heal ' + targetFormat + '_\n' +
+              '_.ww poison ' + targetFormat + '_\n' +
+              '_.ww skip_'
+            : '_' + instructions[player.role] + '_\n\n' +
+              '*DAFTAR PEMAIN*\n' +
+              playerList +
+              (player.role === 'Guardian'
+                ? '\n\n_Kamu tidak bisa melindungi diri sendiri atau target yang sama dua malam berturut-turut._'
+                : ''))
+      });
+    } catch (error) {
+      console.error('Gagal mengirim instruksi malam:', error);
+    }
+  }
+
+  await sock.sendMessage(groupJid, {
+    text:
+      '🌙 *NIGHT PHASE*\n\n' +
+      '_Semua role yang memiliki aksi malam, silakan periksa chat pribadi bot._\n\n' +
+      '_Fase akan berlanjut setelah semua aksi selesai._'
+  });
+
+  return true;
+}
+
+// MEMULAI MALAM MODE HYBRID
+export async function startHybridNight(sock, lobby, groupJid) {
+  if (lobby.status !== 'playing') return false;
+
+  if (lobby.phase === 'night' && lobby.nightInitialized) {
+    await sock.sendMessage(groupJid, {
+      text: '🌙 *NIGHT PHASE*\n\n_Fase malam sedang berlangsung._'
+    });
+    return true;
+  }
+
+  lobby.phase = 'night';
+  initializeNightActions(lobby);
+  lobby.nightInitialized = true;
+
+  const alive = getAlivePlayers(lobby);
+  const humanJid = lobby.humanJid;
+
+  // Aksi otomatis Werewolf virtual
+  for (const wolf of alive.filter(player => isWolfKiller(player.role))) {
+    if (wolf.jid === humanJid) continue;
+
+    const targets = alive.filter(player => !isWolf(player.role));
+    const target = randomTarget(targets, wolf.jid);
+
+    if (target) {
+      lobby.nightActions.wolves.set(wolf.jid, target);
+    }
+  }
+
+  // Aksi otomatis Sorcerer virtual
+  const sorcerer = alive.find(player => player.role === 'Sorcerer');
+
+  if (sorcerer && sorcerer.jid !== humanJid) {
+    const targets = alive.filter(player =>
+      player.jid !== sorcerer.jid
+    );
+    const target = randomTarget(targets, sorcerer.jid);
+
+    if (target) {
+      lobby.nightActions.sorcerer = {
+        sender: sorcerer.jid,
+        target
+      };
+      lobby.nightActions.mutedTarget = target;
+    }
+  }
+
+  // Aksi otomatis Seer virtual
+  const seer = alive.find(player => player.role === 'Seer');
+
+  if (seer && seer.jid !== humanJid) {
+    const target = randomTarget(alive, seer.jid);
+
+    if (target) {
+      lobby.nightActions.seer = {
+        sender: seer.jid,
+        target
+      };
+    }
+  }
+
+  // Aksi otomatis Doctor virtual
+  const doctor = alive.find(player => player.role === 'Doctor');
+
+  if (doctor && doctor.jid !== humanJid) {
+    const target = randomTarget(alive, doctor.jid);
+
+    if (target) {
+      lobby.nightActions.doctor = {
+        sender: doctor.jid,
+        target
+      };
+    }
+  }
+
+  // Witch virtual tidak menggunakan ramuan secara otomatis
+  const witch = alive.find(player => player.role === 'Witch');
+
+  if (witch && witch.jid !== humanJid) {
+    lobby.nightActions.witchDone = true;
+  }
+
+  // Guardian virtual memilih perlindungan otomatis
+  const guardian = alive.find(player => player.role === 'Guardian');
+
+  if (guardian && guardian.jid !== humanJid) {
+    const targets = alive.filter(player =>
+      player.jid !== guardian.jid &&
+      player.jid !== lobby.lastGuardianTarget
+    );
+
+    const target = randomTarget(targets, guardian.jid);
+
+    if (target) {
+      lobby.nightActions.guardian = {
+        sender: guardian.jid,
+        target
+      };
+      lobby.nightActions.guardianDone = true;
+      lobby.lastGuardianTarget = target;
+    } else {
+      lobby.nightActions.guardianDone = true;
+    }
+  }
+
+  // Instruksi pemain manusia
+  const human = alive.find(player => player.jid === humanJid);
+
+  const targetFormat = lobby.hybrid ? 'NOMOR' : 'NAMA';
+  const instructions = {
+    Werewolf: '.ww kill ' + targetFormat,
+    'Alpha Werewolf': '.ww kill ' + targetFormat,
+    Sorcerer: '.ww mute ' + targetFormat,
+    Seer: '.ww inspect ' + targetFormat,
+    Doctor: '.ww protect ' + targetFormat,
+    Witch:
+      '.ww heal ' + targetFormat + '\n.ww poison ' + targetFormat + '\n.ww skip',
+    Guardian:
+      '.ww guard ' + targetFormat + '\n.ww skip'
+  };
+
+  if (human && instructions[human.role]) {
+    await sock.sendMessage(humanJid, {
+      text:
+        '🌙 *NIGHT PHASE*\n\n' +
+        '_Silakan lakukan aksi sesuai role kamu._\n' +
+        (human.role === 'Witch'
+          ? '*DAFTAR PEMAIN*\n' +
+            getPlayerList(lobby) +
+            '\n\n_Ingat: setiap ramuan Witch hanya dapat digunakan satu kali._\n\n' +
+            '_.ww heal ' + targetFormat + '_\n' +
+            '_.ww poison ' + targetFormat + '_\n' +
+            '_.ww skip_'
+          : '_' + instructions[human.role] + '_\n\n' +
+            '*DAFTAR PEMAIN*\n' +
+            getPlayerList(lobby))
+    });
+  }
+
+  await sock.sendMessage(groupJid, {
+    text:
+      '🌙 *NIGHT PHASE*\n\n' +
+      '_Pemain virtual telah menjalankan aksi otomatis._\n\n' +
+      '_Jika role kamu membutuhkan aksi, periksa chat pribadi bot._\n\n' +
+      '_Admin: gunakan .ww check untuk memeriksa aksi yang belum masuk._\n\n' +
+      '_Fase malam berlanjut otomatis setelah semua aksi lengkap._'
+  });
+
+  return true;
+}
+
+// MEMPROSES AKSI MALAM
+export async function handleNightAction(
+  sock,
+  lobby,
+  senderJid,
+  command
+) {
+  if (lobby.status !== 'playing' || lobby.phase !== 'night') {
+    return false;
+  }
+
+  const args = command.trim().split(/\s+/);
+  const action = args[1]?.toLowerCase();
+  const targetName = args.slice(2).join(' ').toLowerCase();
+
+  const player = lobby.roleAssignments.find(
+    item => item.jid === senderJid
+  );
+
+  if (!player || !lobby.alivePlayers.has(senderJid)) {
+    return false;
+  }
+
+  const allowedActions = {
+    Werewolf: 'kill',
+    'Alpha Werewolf': 'kill',
+    Seer: 'inspect',
+    Doctor: 'protect',
+    Sorcerer: 'mute',
+    Witch: ['heal', 'poison', 'skip'],
+    Guardian: ['guard', 'skip']
+  };
+
+  const allowed = allowedActions[player.role];
+
+  if (
+    !allowed ||
+    (Array.isArray(allowed)
+      ? !allowed.includes(action)
+      : allowed !== action)
+  ) {
+    return false;
+  }
+
+  if (
+    senderJid === lobby.nightActions?.mutedTarget &&
+    action !== 'skip'
+  ) {
+    await sock.sendMessage(senderJid, {
+      text: '🔇 *SKILL TERKUNCI*\n\n_Sorcerer telah menggunakan Mute terhadapmu. Kamu tidak dapat menggunakan skill malam ini._'
+    });
+    return true;
+  }
+
+  if (action === 'skip') {
+    if (player.role === 'Witch') {
+      lobby.nightActions.witchDone = true;
+    } else if (player.role === 'Guardian') {
+      lobby.nightActions.guardianDone = true;
+    }
+
+    await sock.sendMessage(senderJid, {
+      text: '✅ *AKSI BERHASIL DICATAT*\n\n_Aksi malam kamu berhasil dilewati._'
+    });
+    return true;
+  }
+
+  if (
+    player.role === 'Witch' &&
+    action === 'heal' &&
+    lobby.witchPotions.healUsed
+  ) {
+    await sock.sendMessage(senderJid, {
+      text: '❌ *RAMUAN SUDAH DIGUNAKAN*\n\n_Ramuan penyembuh kamu sudah digunakan._'
+    });
+    return true;
+  }
+
+  if (
+    player.role === 'Witch' &&
+    action === 'poison' &&
+    lobby.witchPotions.poisonUsed
+  ) {
+    await sock.sendMessage(senderJid, {
+      text: '❌ *RAMUAN SUDAH DIGUNAKAN*\n\n_Ramuan racun kamu sudah digunakan._'
+    });
+    return true;
+  }
+
+  let targetJid;
+
+  if (targetName) {
+    if (lobby.hybrid) {
+      const number = Number(targetName);
+      if (Number.isInteger(number) && number >= 1 && number <= lobby.players.length) {
+        targetJid = lobby.players[number - 1];
+      }
+    } else {
+      targetJid = lobby.players.find(jid =>
+        (lobby.playerNames?.[jid] || '').toLowerCase() === targetName
+      );
+    }
+  }
+
+  if (!targetJid) {
+    await sock.sendMessage(senderJid, {
+      text: lobby.hybrid
+        ? '❌ *TARGET TIDAK VALID*\n\n_Gunakan nomor pemain pada daftar._'
+        : '❌ *TARGET TIDAK VALID*\n\n_Gunakan nama pemain yang terdaftar._'
+    });
+    return true;
+  }
+
+  if (!lobby.alivePlayers.has(targetJid)) {
+    await sock.sendMessage(senderJid, {
+      text: '❌ *TARGET SUDAH GUGUR*\n\n_Pemain tersebut sudah tidak hidup._'
+    });
+    return true;
+  }
+
+  if (targetJid === senderJid) {
+    await sock.sendMessage(senderJid, {
+      text: '❌ *TARGET TIDAK VALID*\n\n_Kamu tidak dapat memilih diri sendiri._'
+    });
+    return true;
+  }
+
+  const target = lobby.roleAssignments.find(
+    item => item.jid === targetJid
+  );
+
+  if (
+    action === 'kill' &&
+    isWolf(player.role) &&
+    isWolf(target.role)
+  ) {
+    await sock.sendMessage(senderJid, {
+      text: '❌ Werewolf tidak dapat memilih sesama Werewolf.'
+    });
+    return true;
+  }
+
+  if (action === 'guard' && targetJid === lobby.lastGuardianTarget) {
+    await sock.sendMessage(senderJid, {
+      text: '❌ Guardian tidak dapat melindungi target yang sama dua malam berturut-turut.'
+    });
+    return true;
+  }
+
+  const actions = lobby.nightActions;
+
+  if (action === 'mute') {
+    if (actions.sorcerer) {
+      await sock.sendMessage(senderJid, {
+        text: '⚠️ *AKSI SUDAH DILAKUKAN*\n\n_Mute kamu malam ini sudah tercatat._'
+      });
+      return true;
+    }
+
+    actions.sorcerer = {
+      sender: senderJid,
+      target: targetJid
+    };
+
+    actions.mutedTarget = targetJid;
+  }
+
+  if (action === 'kill') {
+    if (actions.wolves.has(senderJid)) {
+      await sock.sendMessage(senderJid, {
+        text: '⚠️ *AKSI SUDAH DILAKUKAN*\n\n_Aksi kamu sebelumnya sudah tercatat._'
+      });
+      return true;
+    }
+
+    actions.wolves.set(senderJid, targetJid);
+  }
+
+  if (action === 'inspect') {
+    if (actions.seer) {
+      await sock.sendMessage(senderJid, {
+        text: '⚠️ *AKSI SUDAH DILAKUKAN*\n\n_Aksi kamu sebelumnya sudah tercatat._'
+      });
+      return true;
+    }
+
+    actions.seer = {
+      sender: senderJid,
+      target: targetJid
+    };
+
+    await sock.sendMessage(senderJid, {
+      text:
+        '⏳ *PEMERIKSAAN BERHASIL DICATAT*\n\n' +
+        '_Pilihan Inspect kamu sudah diterima._\n\n' +
+        '_Menunggu Sorcerer menyelesaikan pilihan Mute sebelum hasil pemeriksaan diberikan._'
+    });
+
+    return true;
+  }
+
+  if (action === 'protect') {
+    if (actions.doctor) {
+      await sock.sendMessage(senderJid, {
+        text: '⚠️ *AKSI SUDAH DILAKUKAN*\n\n_Aksi kamu sebelumnya sudah tercatat._'
+      });
+      return true;
+    }
+
+    actions.doctor = {
+      sender: senderJid,
+      target: targetJid
+    };
+  }
+
+  if (action === 'heal') {
+    if (actions.witchHeal) {
+      await sock.sendMessage(senderJid, {
+        text: '⚠️ *AKSI SUDAH DILAKUKAN*\n\n_Aksi kamu sebelumnya sudah tercatat._'
+      });
+      return true;
+    }
+
+    actions.witchHeal = {
+      sender: senderJid,
+      target: targetJid
+    };
+
+  }
+
+  if (action === 'poison') {
+    if (actions.witchPoison) {
+      await sock.sendMessage(senderJid, {
+        text: '⚠️ *AKSI SUDAH DILAKUKAN*\n\n_Aksi kamu sebelumnya sudah tercatat._'
+      });
+      return true;
+    }
+
+    actions.witchPoison = {
+      sender: senderJid,
+      target: targetJid
+    };
+
+  }
+
+  if (action === 'guard') {
+    if (actions.guardian) {
+      await sock.sendMessage(senderJid, {
+        text: '⚠️ *AKSI SUDAH DILAKUKAN*\n\n_Aksi kamu sebelumnya sudah tercatat._'
+      });
+      return true;
+    }
+
+    actions.guardian = {
+      sender: senderJid,
+      target: targetJid
+    };
+
+    actions.guardianDone = true;
+    lobby.lastGuardianTarget = targetJid;
+  }
+
+  await sock.sendMessage(senderJid, {
+    text: player.role === 'Sorcerer'
+      ? '🔇 *MUTE BERHASIL DIGUNAKAN*\n\n_Target tidak dapat menggunakan skill malam ini._\n\n_Giliran malam kamu otomatis selesai.'
+      : '✅ *AKSI BERHASIL DICATAT*\n\n_Pilihan kamu sudah diterima._\n\n_Gunakan .ww skip jika tidak ada aksi lain.'
+  });
+
+  return true;
+}
+
+// MENYELESAIKAN FASE MALAM
+export async function resolveNight(sock, lobby, groupJid, options = {}) {
+  const force = options.force === true;
+  if (lobby.status !== 'playing' || lobby.phase !== 'night') {
+    await sock.sendMessage(groupJid, {
+      text: '❌ Tidak sedang dalam fase malam.'
+    });
+    return false;
+  }
+
+  const alive = getAlivePlayers(lobby);
+  const sorcererAction = lobby.nightActions?.sorcerer;
+
+  const mutedTarget =
+    sorcererAction &&
+    lobby.alivePlayers.has(sorcererAction.target)
+      ? sorcererAction.target
+      : null;
+
+  const isActiveNightAction = action =>
+    Boolean(
+      action &&
+      action.sender !== mutedTarget &&
+      lobby.alivePlayers.has(action.sender) &&
+      lobby.alivePlayers.has(action.target)
+    );
+
+  const wolves = alive.filter(player => isWolfKiller(player.role));
+  const seerAlive = alive.some(player => player.role === 'Seer');
+  const doctorAlive = alive.some(player => player.role === 'Doctor');
+  const witch = alive.find(player => player.role === 'Witch');
+  const guardianAlive = alive.some(player => player.role === 'Guardian');
+
+  if (!force && wolves.some(wolf => wolf.jid !== mutedTarget && !lobby.nightActions.wolves.has(wolf.jid))) {
+    await sock.sendMessage(groupJid, {
+      text: '⏳ *AKSI MALAM BELUM LENGKAP*\n\n_Belum semua Werewolf mengirim pilihan target._'
+    });
+    return false;
+  }
+
+  if (!force && seerAlive && alive.find(player => player.role === 'Seer')?.jid !== mutedTarget && !lobby.nightActions.seer) {
+    await sock.sendMessage(groupJid, {
+      text: '⏳ *AKSI MALAM BELUM LENGKAP*\n\n_Seer belum melakukan pemeriksaan._'
+    });
+    return false;
+  }
+
+  if (!force && doctorAlive && alive.find(player => player.role === 'Doctor')?.jid !== mutedTarget && !lobby.nightActions.doctor) {
+    await sock.sendMessage(groupJid, {
+      text: '⏳ *AKSI MALAM BELUM LENGKAP*\n\n_Doctor belum memilih pemain untuk dilindungi._'
+    });
+    return false;
+  }
+
+  if (
+    !force &&
+    witch &&
+    witch.jid !== mutedTarget &&
+    !lobby.nightActions.witchDone &&
+    !(lobby.witchPotions.healUsed && lobby.witchPotions.poisonUsed)
+  ) {
+    await sock.sendMessage(groupJid, {
+      text: '⏳ *AKSI MALAM BELUM LENGKAP*\n\n_Witch belum mengirim aksi atau .ww skip._'
+    });
+    return false;
+  }
+
+  if (!force && guardianAlive && alive.find(player => player.role === 'Guardian')?.jid !== mutedTarget && !lobby.nightActions.guardianDone) {
+    await sock.sendMessage(groupJid, {
+      text: '⏳ *AKSI MALAM BELUM LENGKAP*\n\n_Guardian belum mengirim aksi atau .ww skip._'
+    });
+    return false;
+  }
+
+  // Mengirim hasil Inspect setelah keputusan Mute diketahui
+  const seerAction = lobby.nightActions.seer;
+
+  if (isActiveNightAction(seerAction)) {
+    const target = lobby.roleAssignments.find(
+      player => player.jid === seerAction.target
+    );
+
+    if (target) {
+      const hidden = ['Alpha Werewolf', 'Jester'].includes(target.role);
+      const result = hidden ? 'Identitas tidak diketahui' : target.role;
+
+      const targetName = lobby.hybrid
+        ? seerAction.target === lobby.humanJid
+          ? 'Manusia'
+          : 'Virtual ' + lobby.players.indexOf(seerAction.target)
+        : lobby.playerNames?.[seerAction.target] || seerAction.target;
+
+      await sock.sendMessage(seerAction.sender, {
+        text:
+          '🔮 *HASIL PEMERIKSAAN*\\n\\n' +
+          `Pemain ${targetName} memiliki role: ${result}.`
+      });
+    }
+  }
+
+  // Menghitung suara Werewolf tanpa aktor yang terkena Mute
+  const votes = new Map();
+
+  for (const [sender, target] of lobby.nightActions.wolves.entries()) {
+    if (sender === mutedTarget) continue;
+    if (!lobby.alivePlayers.has(sender) || !lobby.alivePlayers.has(target)) continue;
+    votes.set(target, (votes.get(target) || 0) + 1);
+  }
+
+  const maxVotes = Math.max(0, ...votes.values());
+  const winners = [...votes.entries()].filter(
+    ([, count]) => count === maxVotes
+  );
+
+  let killed = null;
+
+  if (winners.length === 1 && maxVotes > 0) {
+    killed = winners[0][0];
+  }
+
+  // Perlindungan Doctor, Guardian, dan ramuan Witch
+  const protectedTargets = [
+    isActiveNightAction(lobby.nightActions.doctor) ? lobby.nightActions.doctor.target : null,
+    isActiveNightAction(lobby.nightActions.guardian) ? lobby.nightActions.guardian.target : null,
+    isActiveNightAction(lobby.nightActions.witchHeal) ? lobby.nightActions.witchHeal.target : null
+  ].filter(Boolean);
+
+  const wolfTarget = killed;
+  const wolfAttackBlocked = Boolean(
+    wolfTarget && protectedTargets.includes(wolfTarget)
+  );
+
+  if (wolfAttackBlocked) {
+    killed = null;
+  }
+
+  // Target ramuan racun
+  const poisonTarget = isActiveNightAction(lobby.nightActions.witchPoison)
+    ? lobby.nightActions.witchPoison.target
+    : null;
+
+  // Ramuan hanya terpakai jika aksi Witch benar-benar aktif
+  if (isActiveNightAction(lobby.nightActions.witchHeal)) {
+    lobby.witchPotions.healUsed = true;
+  }
+
+  if (poisonTarget) {
+    lobby.witchPotions.poisonUsed = true;
+  }
+
+  const victims = new Set();
+
+  if (killed) victims.add(killed);
+
+  if (poisonTarget) victims.add(poisonTarget);
+
+  const eliminated = eliminatePlayers(lobby, [...victims]);
+
+  let nightHunterShotTarget = null;
+
+  // Hunter Last Shot
+  const hunter = eliminated.find(jid =>
+    lobby.roleAssignments.some(
+      player => player.jid === jid && player.role === 'Hunter'
+    )
+  );
+
+  if (hunter) {
+    const candidates = lobby.roleAssignments.filter(
+      player => lobby.alivePlayers.has(player.jid)
+    );
+
+    if (lobby.hybrid && hunter !== lobby.humanJid) {
+      if (candidates.length > 0) {
+        const shot = candidates[Math.floor(Math.random() * candidates.length)];
+        const shotEliminated = eliminatePlayer(lobby, shot.jid);
+
+        for (const jid of shotEliminated) {
+          if (!eliminated.includes(jid)) eliminated.push(jid);
+        }
+
+        nightHunterShotTarget = shot.jid;
+      }
+    } else if (candidates.length > 0) {
+      lobby.pendingHunterShot = hunter;
+      lobby.pendingAfterHunterPhase = 'day';
+
+      await sock.sendMessage(hunter, {
+        text:
+          '🏹 *HUNTER LAST SHOT*\n\n' +
+          '_Kamu telah gugur dan mendapat kesempatan memilih satu pemain hidup untuk ikut tereliminasi._\n\n' +
+          '_Gunakan perintah:_\n' +
+          (lobby.hybrid ? '_.ww shoot NOMOR_\n\n' : '_.ww shoot NAMA_\n\n') +
+          '_Atau lewati:_\n_.ww skip_'
+      });
+    }
+  }
+  const announcementParts = [];
+
+  const getNightName = jid => {
+    const number = lobby.players.indexOf(jid) + 1;
+
+    return lobby.hybrid
+      ? jid === lobby.humanJid
+        ? 'Pemain Manusia'
+        : 'Pemain Virtual ' + (number - 1)
+      : (lobby.playerNames?.[jid] || 'pemain');
+  };
+
+  // Serangan Werewolf berhasil digagalkan
+  if (wolfAttackBlocked) {
+    announcementParts.push(
+      '🛡️ *SERANGAN BERHASIL DIGAGALKAN*\n\n' +
+      '🐺 Serigala telah menemukan mangsanya. Namun, sebelum serangan berakhir, sebuah perlindungan misterius menggagalkan rencana mereka. Malam itu, target berhasil selamat.'
+    );
+  }
+
+  // Narasi setiap korban berdasarkan penyebab eliminasi
+  for (const jid of eliminated) {
+    const player = lobby.roleAssignments.find(
+      item => item.jid === jid
+    );
+
+    if (!player) continue;
+
+    const name = getNightName(jid);
+    let story;
+
+    if (jid === nightHunterShotTarget) {
+      story =
+        '🏹 Dengan sisa kekuatannya, Hunter melepaskan tembakan terakhir. Sebuah keputusan terakhir yang menyeret ' +
+        name + ' menuju nasib yang sama.';
+    } else if (jid === poisonTarget) {
+      story =
+        '🧪 Witch meracik ramuan terlarang dan mengirimkannya kepada ' +
+        name + '. Tak ada penawar yang tersisa. Malam itu menjadi malam terakhir bagi korban.';
+    } else if (jid === wolfTarget && !wolfAttackBlocked) {
+      story =
+        '🐺 Di balik gelapnya malam, kawanan serigala menerobos masuk ke rumah ' +
+        name + '. Teriakan ketakutan terdengar sebelum semuanya kembali sunyi. Saat fajar tiba, satu nyawa telah hilang.';
+    } else {
+      story =
+        '🌑 Malam itu menjadi akhir perjalanan ' + name + '.';
+    }
+
+    announcementParts.push(
+      '☠️ *' + name + ' (' + player.role + ') gugur malam ini.*\n\n' +
+      story
+    );
+  }
+
+  if (!eliminated.length && !wolfAttackBlocked) {
+    announcementParts.push(
+      '🌙 *MALAM YANG TENANG*\n\n' +
+      'Malam berlalu tanpa serangan yang mengakibatkan pemain gugur.'
+    );
+  }
+
+  lobby.nightInitialized = false;
+  lobby.phase = 'day';
+
+  // Pesan pertama: kejadian malam
+  await sock.sendMessage(groupJid, {
+    text: announcementParts.join('\n\n')
+  });
+
+  // Jeda lima detik
+  await new Promise(resolve => setTimeout(resolve, 5000));
+
+  // Pesan kedua: pengumuman pagi
+  await sock.sendMessage(groupJid, {
+    text:
+      '🌅 *PAGI TELAH TIBA!*\n\n' +
+      getRemainingRoleSummary(lobby) +
+      '\n\nGunakan waktu ini untuk berdiskusi.'
+  });
+
+  return true;
+}

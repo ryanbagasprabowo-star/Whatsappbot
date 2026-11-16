@@ -1,3 +1,5 @@
+import { eliminatePlayer, eliminatePlayers } from './elimination.js';
+
 
 function getAlivePlayers(lobby) {
   return lobby.roleAssignments.filter(
@@ -34,8 +36,9 @@ export async function remindMissingVotes(sock, lobby) {
 
     await sock.sendMessage(player.jid, {
       text:
-        '⏳ VOTING BELUM DITERIMA!\n\n' +
-        'Kamu belum mengirim suara. Silakan kirim pilihan melalui chat pribadi bot.'
+        '⏳ *MENUNGGU VOTING KAMU*\n\n' +
+        '_Suara kamu belum tercatat._\n\n' +
+        '_Silakan kirim pilihan melalui chat pribadi bot._'
     });
   }
 
@@ -117,29 +120,30 @@ export async function startVoting(sock, lobby, groupJid) {
   if (lobby.hybrid) {
     await sock.sendMessage(lobby.humanJid, {
       text:
-        '🗳️ VOTING DIMULAI!\n\n' +
-        'Pilih pemain yang ingin kamu keluarkan:\n\n' +
+        '🗳️ *VOTING DIMULAI*\n\n' +
+        '_Pilih pemain yang ingin kamu keluarkan._\n\n' +
+        '*DAFTAR PEMAIN*\n' +
         playerList +
-        '\n\nGunakan:\n.ww pilih NOMOR'
+        '\n\n_Gunakan perintah:_\n_.ww pilih NOMOR_'
     });
   } else {
     for (const player of alive) {
       await sock.sendMessage(player.jid, {
         text:
-          '🗳️ VOTING DIMULAI!\n\n' +
-          'Pilih pemain yang ingin kamu keluarkan:\n\n' +
+          '🗳️ *VOTING DIMULAI*\n\n' +
+          '_Pilih pemain yang ingin kamu keluarkan._\n\n' +
+          '*DAFTAR PEMAIN*\n' +
           playerList +
-          '\n\nGunakan:\n.ww pilih NAMA'
+          '\n\n_Gunakan perintah:_\n_.ww pilih NAMA_'
       });
     }
   }
 
   await sock.sendMessage(groupJid, {
     text:
-      '🗳️ VOTING TELAH DIMULAI!\n\n' +
-      'Silakan kirim pilihan melalui chat pribadi bot.\n' +
-      'Admin dapat menyelesaikan voting dengan:\n' +
-      '.ww check'
+      '🗳️ *VOTING DIMULAI*\n\n' +
+      '_Silakan kirim pilihan melalui chat pribadi bot._\n\n' +
+      '_Admin: gunakan .ww check untuk memeriksa kelengkapan voting._'
   });
 
   return true;
@@ -169,7 +173,7 @@ export async function handleVote(
 
   if (lobby.voting.voters.has(senderJid)) {
     await sock.sendMessage(senderJid, {
-      text: '⚠️ Kamu sudah mengirim suara.'
+      text: '⚠️ *VOTING SUDAH DILAKUKAN*\n\n_Kamu sudah mengirim suara sebelumnya._'
     });
     return true;
   }
@@ -227,7 +231,7 @@ export async function handleVote(
   lobby.voting.voters.add(senderJid);
 
   await sock.sendMessage(senderJid, {
-    text: '✅ Suara kamu berhasil dicatat.'
+    text: '✅ *SUARA BERHASIL DICATAT*\n\n_Pilihan kamu sudah diterima._'
   });
 
   return true;
@@ -271,7 +275,7 @@ export async function resolveVoting(sock, lobby, groupJid) {
 
   if (winners.length === 1 && maxVotes > 0) {
     eliminated = winners[0][0];
-    lobby.alivePlayers.delete(eliminated);
+    const eliminatedChain = eliminatePlayer(lobby, eliminated);
 
     const target = lobby.roleAssignments.find(
       player => player.jid === eliminated
@@ -289,41 +293,57 @@ export async function resolveVoting(sock, lobby, groupJid) {
         : `⚖️ ${getPlayerLabel(lobby, eliminated)} dikeluarkan.\n🎭 Role: ${target.role}`
     );
 
-    if (target?.role === 'Hunter') {
+    // Narasi hukuman warga
+    result.push(
+      '🔥 Warga kehilangan kesabaran. Di tengah kepungan massa, keputusan telah dijatuhkan. Api penghakiman menyala, dan ' +
+      getPlayerLabel(lobby, eliminated) +
+      ' resmi tereliminasi.'
+    );
+
+    const hunterJid = eliminatedChain.find(jid =>
+      lobby.roleAssignments.some(
+        player => player.jid === jid && player.role === 'Hunter'
+      )
+    );
+
+    if (hunterJid) {
       const candidates = getAlivePlayers(lobby);
 
-      if (lobby.hybrid && eliminated !== lobby.humanJid) {
+      if (lobby.hybrid && hunterJid !== lobby.humanJid) {
         if (candidates.length > 0) {
           const shot = candidates[
             Math.floor(Math.random() * candidates.length)
           ];
 
-          lobby.alivePlayers.delete(shot.jid);
+          const shotEliminated = eliminatePlayer(lobby, shot.jid);
 
           result.push(
             '🏹 Hunter Virtual melakukan Last Shot!\n' +
             '🎯 ' + getPlayerLabel(lobby, shot.jid) + ' ikut gugur.\n' +
-            '🎭 Role: ' + shot.role
+            '🎭 Role: ' + shot.role +
+            '\n🔥 Dengan sisa kekuatannya, Hunter melepaskan tembakan terakhir. Sebuah keputusan terakhir yang menyeret ' +
+            getPlayerLabel(lobby, shot.jid) + ' menuju nasib yang sama.'
           );
         } else {
           result.push('🏹 Hunter tidak memiliki target Last Shot.');
         }
       } else if (candidates.length > 0) {
-        lobby.pendingHunterShot = eliminated;
+        lobby.pendingHunterShot = hunterJid;
         lobby.pendingAfterHunterPhase = 'night';
 
-        await sock.sendMessage(eliminated, {
+        await sock.sendMessage(hunterJid, {
           text:
-            '🏹 HUNTER LAST SHOT!\n\n' +
-            'Kamu telah gugur dan dapat memilih satu pemain hidup untuk ikut tereliminasi.\n\n' +
+            '🏹 *HUNTER LAST SHOT*\n\n' +
+            '_Kamu telah gugur dan mendapat kesempatan memilih satu pemain hidup untuk ikut tereliminasi._\n\n' +
+            '_Gunakan perintah:_\n' +
             (lobby.hybrid
-              ? 'Gunakan nomor pemain:\n.ww shoot NOMOR\n\n'
-              : 'Gunakan nama pemain:\n.ww shoot NAMA\n\n') +
-            'Atau lewati:\n.ww skip'
+              ? '_.ww shoot NOMOR_\n\n'
+              : '_.ww shoot NAMA_\n\n') +
+            '_Atau lewati:_\n_.ww skip_'
         });
 
         result.push(
-          '🏹 Hunter menunggu pilihan Last Shot melalui chat pribadi.'
+          '🏹 *HUNTER LAST SHOT*\n\n_Hunter sedang menentukan pemain yang akan ikut tereliminasi._'
         );
       } else {
         result.push('🏹 Hunter tidak memiliki target Last Shot.');

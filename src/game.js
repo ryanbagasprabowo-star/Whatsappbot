@@ -54,8 +54,8 @@ export async function checkGameEnd(sock, lobby, groupJid) {
 
   const roles = lobby.roleAssignments.map((player, index) => {
     const status = lobby.alivePlayers.has(player.jid)
-      ? '🟢 Masih hidup'
-      : '☠️ Gugur';
+      ? '🟢'
+      : '☠️';
 
     const label = lobby.hybrid
       ? player.jid === lobby.humanJid
@@ -64,8 +64,8 @@ export async function checkGameEnd(sock, lobby, groupJid) {
       : getPlayerName(lobby, player.jid);
 
     return lobby.hybrid
-  ? `${index + 1}. ${label} — ${player.role} (${status})`
-  : `${label} — ${player.role} (${status})`;
+  ? `${index + 1}. ${label} — ${player.role} ${status}`
+  : `${label} — ${player.role} ${status}`;
   }).join('\n');
 
   await sock.sendMessage(groupJid, {

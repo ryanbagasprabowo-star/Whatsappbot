@@ -44,6 +44,18 @@ export function createRoles(players) {
     ];
   }
 
+  if (total >= 9) {
+    roles.push('Cupid');
+  }
+
+  if (total >= 10) {
+    roles.push('Detective');
+  }
+
+  if (total >= 12) {
+    roles.push('Sorcerer');
+  }
+
   roles.push(...Array(total - roles.length).fill('Villager'));
 
   // Acak urutan role
@@ -61,23 +73,40 @@ export function createRoles(players) {
 export function getRoleInfo(role) {
   const descriptions = {
     Werewolf:
-      '🐺 *WEREWOLF*\n\n_Kamu adalah Werewolf._\n_Pada malam hari, pilih target bersama anggota Werewolf lainnya._',
+      '🐺 *WEREWOLF*\\n\\n_Kamu adalah Werewolf._\\n_Pada malam hari, pilih target bersama anggota Werewolf lainnya._',
+
     'Alpha Werewolf':
-      '👑🐺 *ALPHA WEREWOLF*\n\n_Kamu adalah pemimpin tim Werewolf._\n_Pada malam hari, pilih target bersama anggota Werewolf lainnya._',
+      '👑🐺 *ALPHA WEREWOLF*\\n\\n_Kamu adalah pemimpin tim Werewolf._\\n_Pada malam hari, pilih target bersama anggota Werewolf lainnya._',
+
+    Sorcerer:
+      '🔇 *SORCERER*\\n\\n_Kamu adalah Sorcerer dari faksi Werewolf._\\n_Pada malam hari, pilih satu pemain untuk dibungkam menggunakan skill Mute. Target tidak dapat menggunakan skill malam pada malam tersebut._',
+
     Seer:
-      '🔮 *SEER*\n\n_Kamu adalah Seer._\n_Pada malam hari, kamu dapat memeriksa identitas seorang pemain._',
+      '🔮 *SEER*\\n\\n_Kamu adalah Seer._\\n_Pada malam hari, kamu dapat memeriksa identitas seorang pemain._',
+
+    Detective:
+      '🔍 *DETECTIVE*\\n\\n_Kamu adalah Detective dari faksi Village._\\n_Pada malam hari, periksa satu pemain untuk mengetahui apakah dia termasuk faksi Werewolf._',
+
     Doctor:
-      '🩺 *DOCTOR*\n\n_Kamu adalah Doctor._\n_Pada malam hari, kamu dapat memilih pemain untuk dilindungi dari serangan._',
+      '🩺 *DOCTOR*\\n\\n_Kamu adalah Doctor._\\n_Pada malam hari, kamu dapat memilih pemain untuk dilindungi dari serangan._',
+
     Witch:
-      '🧙 *WITCH*\n\n_Kamu adalah Witch._\n_Kamu memiliki satu ramuan penyembuh dan satu ramuan racun. Masing-masing hanya dapat digunakan satu kali selama permainan._',
+      '🧙 *WITCH*\\n\\n_Kamu adalah Witch._\\nKamu memiliki satu ramuan penyembuh dan satu ramuan racun. Masing-masing hanya dapat digunakan satu kali selama permainan._',
+
     Hunter:
-      '🏹 *HUNTER*\n\n_Kamu adalah Hunter._\nJika gugur, kamu mendapatkan kesempatan Last Shot untuk mengeliminasi satu pemain yang masih hidup._',
+      '🏹 *HUNTER*\\n\\nKamu adalah Hunter._\\nJika gugur, kamu mendapatkan kesempatan Last Shot untuk mengeliminasi satu pemain yang masih hidup._',
+
     Guardian:
-      '🛡️ *GUARDIAN*\n\n_Kamu adalah Guardian._\nPada malam hari, kamu dapat melindungi seorang pemain dari serangan Werewolf. Kamu tidak dapat melindungi target yang sama dua malam berturut-turut._',
+      '🛡️ *GUARDIAN*\\n\\nKamu adalah Guardian._\\nPada malam hari, kamu dapat melindungi seorang pemain dari serangan Werewolf. Kamu tidak dapat melindungi target yang sama dua malam berturut-turut._',
+
+    Cupid:
+      '💘 *CUPID*\n\n_Kamu adalah Cupid dari faksi Village._\nPada malam pertama, pilih dua pemain lain untuk dijadikan Lovers. Kalian akan mengetahui nama dan role pasangan. Jika salah satu gugur, pasangannya ikut gugur._',
+
     Jester:
-      '🃏 *JESTER*\n\n_Kamu adalah Jester._\nTujuanmu adalah tereliminasi melalui voting agar bisa memenangkan permainan._',
+      '🃏 *JESTER*\\n\\n_Kamu adalah Jester._\\nTujuanmu adalah tereliminasi melalui voting agar bisa memenangkan permainan._',
+
     Villager:
-      '👨‍🌾 *VILLAGER*\n\n_Kamu adalah Villager._\nDiskusikan siapa yang mencurigakan dan gunakan voting untuk menemukan Werewolf._'
+      '👨‍🌾 *VILLAGER*\\n\\n_Kamu adalah Villager._\\nDiskusikan siapa yang mencurigakan dan gunakan voting untuk menemukan Werewolf._'
   };
 
   return descriptions[role] || 'Role tidak ditemukan.';

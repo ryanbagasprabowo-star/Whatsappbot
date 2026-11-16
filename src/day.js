@@ -51,31 +51,12 @@ export async function startDay(sock, lobby, groupJid) {
     return false;
   }
 
-  const playerList = alive.map(player => {
-  if (lobby.hybrid) {
-    const number = lobby.players.indexOf(player.jid) + 1;
-    return `${number}. ${getPlayerLabel(lobby, player)}`;
-  }
 
-  return getPlayerName(lobby, player.jid);
-}).join('\n');
 
   lobby.dayDiscussion = {
     started: true,
     alivePlayers: alive.map(player => player.jid)
   };
-
-  await sock.sendMessage(groupJid, {
-    text:
-      '☀️ PAGI TELAH TIBA!\n\n' +
-      '🗣️ WAKTU DISKUSI DIMULAI!\n\n' +
-      '👥 PEMAIN YANG MASIH HIDUP:\n' +
-      playerList +
-      '\n\n' +
-      'Diskusikan siapa yang kalian curigai.\n\n' +
-      'Admin dapat memulai voting dengan:\n' +
-      '.ww vote'
-  });
 
   return true;
 }
