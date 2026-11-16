@@ -29,6 +29,7 @@ import {
 } from './game.js';
 
 const lobbies = new Map();
+const finishedWillLobbies = new Map();
 
 const ROLE_STICKER_PATHS = {
   'Werewolf': '../assets/role-stickers/werewolf.webp',
@@ -189,6 +190,113 @@ function findPlayerJid(lobby, senderJids) {
   }) || null;
 }
 
+function archiveLastWillState(lobby, groupJid) {
+  if (
+    !lobby?.hybrid &&
+    lobby.latestEliminationBatch instanceof Set &&
+    lobby.latestEliminationBatch.size > 0
+  ) {
+    finishedWillLobbies.set(groupJid, lobby);
+  }
+}
+
+async function handleWillMessage(sock, senderJids, rawCommand) {
+  const match = rawCommand.trim().match(/^\\.ww\\s+will(?:\\s+([\\s\\S]*))?$/i);
+  if (!match) return false;
+
+  const willText = (match[1] || '').trim();
+  if (!willText) {
+    await sock.sendMessage(Array.isArray(senderJids) ? senderJids[0] : senderJids, {
+      text: 'Gunakan .ww will <isi wasiat> untuk mengirim wasiat.'
+    });
+    return true;
+  }
+
+  const candidates = [
+    ...lobbies.entries(),
+    ...finishedWillLobbies.entries()
+  ];
+
+  for (const [groupJid, lobby] of candidates) {
+    if (lobby.hybrid) continue;
+
+    const playerJid = findPlayerJid(lobby, senderJids);
+    if (!playerJid) continue;
+
+    const player = lobby.roleAssignments?.find(item => item.jid === playerJid);
+    if (!player) continue;
+
+    if (lobby.alivePlayers?.has(playerJid)) {
+      await sock.sendMessage(playerJid, {
+        text: '⛔ Wasiat hanya dapat dikirim setelah kamu gugur.'
+      });
+      return true;
+    }
+
+    if (!lobby.latestEliminationBatch?.has(playerJid)) {
+      await sock.sendMessage(playerJid, {
+        text: '⌛ Kesempatan Wasiat kamu telah berakhir karena ada pemain lain yang gugur setelahmu.'
+      });
+      return true;
+    }
+
+    lobby.willUsed ||= new Set();
+    if (lobby.willUsed.has(playerJid)) {
+      await sock.sendMessage(playerJid, {
+        text: '⚠️ Kamu sudah mengirim Wasiat. Setiap pemain hanya dapat mengirim satu kali.'
+      });
+      return true;
+    }
+
+    lobby.willUsed.add(playerJid);
+    const playerName = lobby.playerNames?.[playerJid] || 'Pemain';
+    await sock.sendMessage(groupJid, {
+      text:
+        '📜 *WASIAT TERAKHIR*\n\n' +
+        '🕯️ ' + playerName + ' meninggalkan pesan terakhir:\n\n' +
+        '“' + willText + '”'
+    });
+    await sock.sendMessage(playerJid, {
+      text: '✅ Wasiat kamu berhasil disampaikan kepada seluruh pemain.'
+    });
+    return true;
+  }
+
+  return false;
+}
+
+export async function handleEliminatedGroupMessage(sock, groupJid, senderJids, messageKey) {
+  const lobby = lobbies.get(groupJid);
+  if (
+    !lobby ||
+    lobby.status !== 'playing' ||
+    lobby.hybrid ||
+    !lobby.alivePlayers
+  ) return false;
+
+  const playerJid = findPlayerJid(lobby, senderJids);
+  if (!playerJid || lobby.alivePlayers.has(playerJid)) return false;
+
+  try {
+    const metadata = await sock.groupMetadata(groupJid);
+    const botIds = [sock.user?.id, sock.user?.lid].filter(Boolean);
+    const bot = metadata.participants.find(participant =>
+      botIds.some(id =>
+        sameJid(id, participant.id) || sameJid(id, participant.lid)
+      )
+    );
+    if (bot?.admin !== 'admin' && bot?.admin !== 'superadmin') {
+      return false;
+    }
+
+    await sock.sendMessage(groupJid, { delete: messageKey });
+    return true;
+  } catch (error) {
+    console.error('[AUTO DELETE ELIMINATED MESSAGE]', error);
+    return false;
+  }
+}
+
 async function finishNightPhase(sock, lobby, groupJid, force = false) {
   if (lobby.status !== 'playing' || lobby.phase !== 'night') return false;
 
@@ -203,6 +311,7 @@ async function finishNightPhase(sock, lobby, groupJid, force = false) {
 
   const finished = await checkGameEnd(sock, lobby, groupJid);
   if (finished) {
+    archiveLastWillState(lobby, groupJid);
     lobbies.delete(groupJid);
   } else {
     await startDay(sock, lobby, groupJid);
@@ -219,6 +328,7 @@ async function finishVotingPhase(sock, lobby, groupJid) {
 
   const finished = await checkGameEnd(sock, lobby, groupJid);
   if (finished) {
+    archiveLastWillState(lobby, groupJid);
     lobbies.delete(groupJid);
   } else {
     await startNightAndAutoResolve(sock, lobby, groupJid);
@@ -306,6 +416,7 @@ async function handleHunterAction(sock, lobby, playerJid, command, groupJid) {
   await sock.sendMessage(groupJid, { text: announcement });
   const finished = await checkGameEnd(sock, lobby, groupJid);
   if (finished) {
+    archiveLastWillState(lobby, groupJid);
     lobbies.delete(groupJid);
   } else if (nextPhase === 'night') {
     await startNightAndAutoResolve(sock, lobby, groupJid);
@@ -316,6 +427,8 @@ async function handleHunterAction(sock, lobby, playerJid, command, groupJid) {
 }
 
 export async function handlePrivateNightMessage(sock, senderJid, command) {
+  if (await handleWillMessage(sock, senderJid, command)) return true;
+
   for (const [groupJid, lobby] of lobbies.entries()) {
     if (lobby.status !== 'playing') continue;
     const playerJid = findPlayerJid(lobby, senderJid);
@@ -563,6 +676,7 @@ export async function handleLobby(
       return true;
     }
 
+    finishedWillLobbies.delete(groupJid);
     lobbies.set(groupJid, {
       players: [],
       status: 'waiting'
