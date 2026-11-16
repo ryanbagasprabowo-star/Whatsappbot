@@ -53,7 +53,7 @@ async function handleMessage(sock, message) {
       return;
     }
 
-  if (command.startsWith('.ww')) {
+    if (command.startsWith('.ww')) {
       const senderJids = getUniqueJids(
         jid,
         key.senderPn,
@@ -124,6 +124,6 @@ async function handleMessage(sock, message) {
   }
 }
 
-console.log('🐺 Memulai Werewolf Multiplayer...');
+console.log('🐺🕵️ Memulai Werewolf Multiplayer + Who’s Spy...');
 
 connectWhatsApp(handleMessage);
