@@ -1102,16 +1102,32 @@ export async function resolveNight(sock, lobby, groupJid, options = {}) {
   }
 
   // Perlindungan Doctor, Guardian, dan ramuan Witch
-  const protectedTargets = [
-    isActiveNightAction(lobby.nightActions.doctor) ? lobby.nightActions.doctor.target : null,
-    isActiveNightAction(lobby.nightActions.guardian) ? lobby.nightActions.guardian.target : null,
-    isActiveNightAction(lobby.nightActions.witchHeal) ? lobby.nightActions.witchHeal.target : null
-  ].filter(Boolean);
+  const protectionSources = [
+    {
+      role: 'Doctor',
+      action: lobby.nightActions.doctor,
+      icon: '🩺',
+      narrative: 'Di tengah malam yang mencekam, Doctor datang membawa harapan. Dengan perlindungannya, target berhasil lolos dari serangan mematikan Werewolf.'
+    },
+    {
+      role: 'Guardian',
+      action: lobby.nightActions.guardian,
+      icon: '🛡️',
+      narrative: 'Di ambang kematian, sebuah perisai berdiri menghadang kegelapan. Guardian berhasil mematahkan serangan Werewolf. Target selamat dari maut malam ini.'
+    },
+    {
+      role: 'Witch',
+      action: lobby.nightActions.witchHeal,
+      icon: '🧙',
+      narrative: 'Ketika kematian hampir merenggut nyawa, ramuan penyelamat mengubah takdir. Witch berhasil menyelamatkan target dari cengkeraman Werewolf.'
+    }
+  ].filter(source => isActiveNightAction(source.action));
 
   const wolfTarget = killed;
-  const wolfAttackBlocked = Boolean(
-    wolfTarget && protectedTargets.includes(wolfTarget)
-  );
+  const successfulProtections = wolfTarget
+    ? protectionSources.filter(source => source.action.target === wolfTarget)
+    : [];
+  const wolfAttackBlocked = successfulProtections.length > 0;
 
   if (wolfAttackBlocked) {
     killed = null;
@@ -1190,11 +1206,23 @@ export async function resolveNight(sock, lobby, groupJid, options = {}) {
       : (lobby.playerNames?.[jid] || 'pemain');
   };
 
-  // Serangan Werewolf berhasil digagalkan
+  // Pengumuman dramatis penyelamatan target serangan Werewolf
   if (wolfAttackBlocked) {
+    const targetName = getNightName(wolfTarget);
+    const protectors = successfulProtections
+      .map(source => source.role)
+      .join(', ');
+    const narratives = successfulProtections
+      .map(source => source.icon + ' ' + source.narrative);
+
     announcementParts.push(
-      '🛡️ *SERANGAN BERHASIL DIGAGALKAN*\n\n' +
-      '🐺 Serigala telah menemukan mangsanya. Namun, sebelum serangan berakhir, sebuah perlindungan misterius menggagalkan rencana mereka. Malam itu, target berhasil selamat.'
+      '🌑 *NYAWA DI UJUNG MAUT — SERANGAN DIGAGALKAN!*\n\n' +
+      '🐺 Kawanan Werewolf telah menentukan mangsanya. Malam itu, maut nyaris merenggut ' +
+      targetName +
+      '. Namun, tepat sebelum segalanya terlambat, kekuatan perlindungan bangkit menghadang kegelapan!\n\n' +
+      narratives.join('\n\n') +
+      '\n\n✨ *' + targetName + ' berhasil selamat!*\n' +
+      '🛡️ Penyelamat: *' + protectors + '*'
     );
   }
 
