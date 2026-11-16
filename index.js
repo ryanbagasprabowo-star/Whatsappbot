@@ -3,6 +3,7 @@ import {
   handleLobby,
   handlePrivateNightMessage
 } from './src/lobby.js';
+import { handleSpyLobby, handleSpyPrivateMessage } from './src/spy/index.js';
 
 function getText(message) {
   let content = message.message;
@@ -42,7 +43,27 @@ async function handleMessage(sock, message) {
 
   // PESAN PRIBADI
   if (!jid.endsWith('@g.us')) {
-    if (command.startsWith('.ww')) {
+    if (command.startsWith('.spy')) {
+      const senderJids = getUniqueJids(jid, key.senderPn, key.senderLid);
+      try {
+        await handleSpyPrivateMessage(sock, senderJids, text);
+      } catch (error) {
+        console.error('[SPY PRIVATE ERROR]', error);
+      }
+      return;
+    }
+
+    if (text.toLowerCase().startsWith('.spy')) {
+    try {
+      await handleSpyLobby(sock, jid, sender, text, senderJids);
+    } catch (error) {
+      console.error('[SPY LOBBY ERROR]', error);
+      await sock.sendMessage(jid, { text: '❌ Terjadi kesalahan pada sistem Who’s Spy.' });
+    }
+    return;
+  }
+
+  if (command.startsWith('.ww')) {
       const senderJids = getUniqueJids(
         jid,
         key.senderPn,
