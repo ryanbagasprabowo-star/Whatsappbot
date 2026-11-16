@@ -53,16 +53,6 @@ async function handleMessage(sock, message) {
       return;
     }
 
-    if (text.toLowerCase().startsWith('.spy')) {
-    try {
-      await handleSpyLobby(sock, jid, sender, text, senderJids);
-    } catch (error) {
-      console.error('[SPY LOBBY ERROR]', error);
-      await sock.sendMessage(jid, { text: '❌ Terjadi kesalahan pada sistem Who’s Spy.' });
-    }
-    return;
-  }
-
   if (command.startsWith('.ww')) {
       const senderJids = getUniqueJids(
         jid,
@@ -102,6 +92,16 @@ async function handleMessage(sock, message) {
     await sock.sendMessage(jid, {
       text: '🐺 PONG!\nWerewolf Multiplayer aktif!'
     });
+    return;
+  }
+
+  if (text.toLowerCase().startsWith('.spy')) {
+    try {
+      await handleSpyLobby(sock, jid, sender, text, senderJids);
+    } catch (error) {
+      console.error('[SPY LOBBY ERROR]', error);
+      await sock.sendMessage(jid, { text: '❌ Terjadi kesalahan pada sistem Who’s Spy.' });
+    }
     return;
   }
 
