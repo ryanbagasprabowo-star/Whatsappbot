@@ -34,9 +34,10 @@ async function finish(sock, group, g) {
   }
   if (alive.length <= 2) {
     g.guess = true;
+    g.phase = 'guess';
     const spy = alive.find(p=>p.spy);
-    await sock.sendMessage(group,{text:'🕵️ SPY MENANG! Spy mendapat satu kesempatan terakhir menebak kata warga melalui DM.'});
-    try { await sock.sendMessage(spy.jid,{text:'Tebak kata warga dengan perintah .spy guess KATA'}); } catch(e) { console.error(e); }
+    await sock.sendMessage(group,{text:'🎯 FINAL GUESS DIMULAI! Spy masih memiliki satu kesempatan untuk menebak kata warga melalui DM. Warga menang jika tebakan salah.'});
+    try { await sock.sendMessage(spy.jid,{text:'🕵️ Kesempatan terakhir! Tebak kata warga dengan perintah .spy guess KATA'}); } catch(e) { console.error(e); }
     return true;
   }
   return false;
@@ -47,8 +48,11 @@ async function countVotes(sock,group,g) {
   const high = Math.max(0,...counts.values());
   const top = [...counts].filter(x=>x[1]===high);
   if (top.length !== 1) {
-    g.votes.clear(); g.phase='clue'; g.round++;
-    await sock.sendMessage(group,{text:'⚖️ Voting seri. Diskusi ronde '+g.round+' dimulai kembali.'});
+    g.votes.clear();
+    g.clues.clear();
+    g.phase='clue';
+    g.round++;
+    await sock.sendMessage(group,{text:'⚖️ Voting seri. Diskusi ronde '+g.round+' dimulai kembali. Semua pemain hidup dapat memberikan petunjuk baru dengan .spy clue ISI.'});
     return;
   }
   const out = g.players.find(p=>p.jid===top[0][0]);
