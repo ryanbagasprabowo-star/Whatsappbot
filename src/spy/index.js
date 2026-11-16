@@ -82,10 +82,14 @@ export async function handleSpyLobby(sock,group,sender,command,senderJids=[sende
     await sock.sendMessage(group,{text:'🕵️ WHO’S SPY\n\nPemain: .spy join NAMA, .spy leave, .spy players, .spy clue ISI, .spy vote NAMA\n\nAdmin: .spy papanda, .spy start, .spy next, .spy stop, .spy add KATA1 dan KATA2, .spy remove KATA1 dan KATA2, .spy words\n\nTebakan akhir Spy melalui DM: .spy guess KATA'});
     return true;
   }
-  if(['papanda','start','next','stop','add','remove','words'].includes(action)) {
+  if(['admin','papanda','start','next','stop','add','remove','words'].includes(action)) {
     let ok=false;
     try { ok=await admin(sock,group,senders); } catch(e) { console.error(e); await sock.sendMessage(group,{text:'❌ Gagal memeriksa admin grup.'}); return true; }
     if(!ok) { await sock.sendMessage(group,{text:'⛔ Perintah ini hanya untuk admin grup.'}); return true; }
+  }
+  if(action==='admin') {
+    await sock.sendMessage(group,{text:'🛠️ BANTUAN ADMIN WHO’S SPY\\n\\nLOBBY & PERMAINAN\\n.spy papanda — Membuka lobby baru\\n.spy start — Memulai permainan (minimal 5 pemain)\\n.spy next — Mengakhiri fase clue dan memulai voting\\n.spy stop — Menghentikan permainan\\n.spy words — Melihat daftar pasangan kata\\n\\nKELOLA KATA\\n.spy add KATA1 dan KATA2 — Menambahkan pasangan kata\\nContoh: .spy add Apple dan Buah Naga\\n.spy remove KATA1 dan KATA2 — Menghapus pasangan kata\\n\\nPEMAIN\\n.spy players — Melihat daftar pemain\\n.spy help — Bantuan umum\\n\\nCatatan: Semua perintah admin hanya dapat digunakan oleh admin grup.'});
+    return true;
   }
   if(action==='words') {
     const d=readWords();
