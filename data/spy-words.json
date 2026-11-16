@@ -1,0 +1,202 @@
+[
+  {
+    "wordA": "Bakso",
+    "wordB": "Mie Ayam",
+    "category": "Makanan"
+  },
+  {
+    "wordA": "Apple",
+    "wordB": "Buah Naga",
+    "category": "Buah"
+  },
+  {
+    "wordA": "Kucing",
+    "wordB": "Anjing",
+    "category": "Hewan"
+  },
+  {
+    "wordA": "Gunung",
+    "wordB": "Pantai",
+    "category": "Tempat"
+  },
+  {
+    "wordA": "Sepeda",
+    "wordB": "Motor",
+    "category": "Kendaraan"
+  },
+  {
+    "wordA": "Teh",
+    "wordB": "Kopi",
+    "category": "Minuman"
+  },
+  {
+    "wordA": "Nasi Goreng",
+    "wordB": "Mie Goreng",
+    "category": "Makanan"
+  },
+  {
+    "wordA": "Singa",
+    "wordB": "Harimau",
+    "category": "Hewan"
+  },
+  {
+    "wordA": "Bulan",
+    "wordB": "Matahari",
+    "category": "Alam"
+  },
+  {
+    "wordA": "Pensil",
+    "wordB": "Pulpen",
+    "category": "Alat Tulis"
+  },
+  {
+    "wordA": "Sepatu",
+    "wordB": "Sandal",
+    "category": "Pakaian"
+  },
+  {
+    "wordA": "Hujan",
+    "wordB": "Salju",
+    "category": "Cuaca"
+  },
+  {
+    "wordA": "Pesawat",
+    "wordB": "Helikopter",
+    "category": "Kendaraan"
+  },
+  {
+    "wordA": "Dokter",
+    "wordB": "Perawat",
+    "category": "Profesi"
+  },
+  {
+    "wordA": "Buku",
+    "wordB": "Majalah",
+    "category": "Media"
+  },
+  {
+    "wordA": "Gitar",
+    "wordB": "Piano",
+    "category": "Musik"
+  },
+  {
+    "wordA": "Jeruk",
+    "wordB": "Mangga",
+    "category": "Buah"
+  },
+  {
+    "wordA": "Susu",
+    "wordB": "Jus",
+    "category": "Minuman"
+  },
+  {
+    "wordA": "Kapal",
+    "wordB": "Kereta",
+    "category": "Kendaraan"
+  },
+  {
+    "wordA": "Kipas",
+    "wordB": "AC",
+    "category": "Elektronik"
+  },
+  {
+    "wordA": "Cermin",
+    "wordB": "Kaca",
+    "category": "Benda"
+  },
+  {
+    "wordA": "Sate",
+    "wordB": "Rendang",
+    "category": "Makanan"
+  },
+  {
+    "wordA": "Kelinci",
+    "wordB": "Hamster",
+    "category": "Hewan"
+  },
+  {
+    "wordA": "Sekolah",
+    "wordB": "Kampus",
+    "category": "Tempat"
+  },
+  {
+    "wordA": "Bintang",
+    "wordB": "Planet",
+    "category": "Astronomi"
+  },
+  {
+    "wordA": "Topi",
+    "wordB": "Helm",
+    "category": "Aksesori"
+  },
+  {
+    "wordA": "Lemari",
+    "wordB": "Rak",
+    "category": "Furnitur"
+  },
+  {
+    "wordA": "Bola",
+    "wordB": "Raket",
+    "category": "Olahraga"
+  },
+  {
+    "wordA": "Kamera",
+    "wordB": "Teropong",
+    "category": "Alat"
+  },
+  {
+    "wordA": "Apel",
+    "wordB": "Pir",
+    "category": "Buah"
+  },
+  {
+    "wordA": "Sungai",
+    "wordB": "Danau",
+    "category": "Alam"
+  },
+  {
+    "wordA": "Kemeja",
+    "wordB": "Jaket",
+    "category": "Pakaian"
+  },
+  {
+    "wordA": "Laptop",
+    "wordB": "Tablet",
+    "category": "Elektronik"
+  },
+  {
+    "wordA": "Kupu-kupu",
+    "wordB": "Lebah",
+    "category": "Serangga"
+  },
+  {
+    "wordA": "Soto",
+    "wordB": "Rawon",
+    "category": "Makanan"
+  },
+  {
+    "wordA": "Melati",
+    "wordB": "Mawar",
+    "category": "Bunga"
+  },
+  {
+    "wordA": "Pisang",
+    "wordB": "Pepaya",
+    "category": "Buah"
+  },
+  {
+    "wordA": "Gajah",
+    "wordB": "Badak",
+    "category": "Hewan"
+  },
+  {
+    "wordA": "Kapal Selam",
+    "wordB": "Kapal Laut",
+    "category": "Kendaraan"
+  },
+  {
+    "wordA": "Roti",
+    "wordB": "Donat",
+    "category": "Makanan"
+  }
+]
