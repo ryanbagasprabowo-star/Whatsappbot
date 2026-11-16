@@ -1,7 +1,8 @@
 import { connectWhatsApp } from './connection.js';
 import {
   handleLobby,
-  handlePrivateNightMessage
+  handlePrivateNightMessage,
+  handleEliminatedGroupMessage
 } from './src/lobby.js';
 
 function getText(message) {
@@ -53,7 +54,7 @@ async function handleMessage(sock, message) {
         await handlePrivateNightMessage(
           sock,
           senderJids,
-          command
+          text
         );
       } catch (error) {
         console.error('[PRIVATE ERROR]', error);
@@ -76,6 +77,14 @@ async function handleMessage(sock, message) {
     key.participantLid;
 
   if (!sender) return;
+
+  const deleted = await handleEliminatedGroupMessage(
+    sock,
+    jid,
+    senderJids,
+    key
+  );
+  if (deleted) return;
 
   if (command === '.ping') {
     await sock.sendMessage(jid, {
