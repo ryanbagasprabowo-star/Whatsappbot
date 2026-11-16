@@ -201,7 +201,7 @@ function archiveLastWillState(lobby, groupJid) {
 }
 
 async function handleWillMessage(sock, senderJids, rawCommand) {
-  const match = rawCommand.trim().match(/^\\.ww\\s+will(?:\\s+([\\s\\S]*))?$/i);
+  const match = rawCommand.trim().match(/^\.ww\s+will(?:\s+([\s\S]*))?$/i);
   if (!match) return false;
 
   const willText = (match[1] || '').trim();
@@ -517,7 +517,8 @@ export async function handleLobby(
       '_.ww poison NAMA/NOMOR_ — Menggunakan ramuan racun\n' +
       '_.ww guard NAMA/NOMOR_ — Melindungi pemain sebagai Guardian\n' +
       '_.ww skip_ — Melewati aksi yang tersedia\n' +
-      '_.ww shoot NAMA/NOMOR_ — Tembakan terakhir Hunter jika tersedia\n\n' +
+      '_.ww shoot NAMA/NOMOR_ — Tembakan terakhir Hunter jika tersedia\n' +
+      '_.ww will <isi>_ — Mengirim Wasiat setelah gugur (Normal Mode)\n\n' +
       '_Gunakan NAMA pada mode normal dan NOMOR pada mode hybrid._';
 
     const adminHelp =
