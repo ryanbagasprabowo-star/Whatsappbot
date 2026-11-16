@@ -1,4 +1,10 @@
-export function eliminatePlayer(lobby, targetJid) {
+function recordEliminationBatch(lobby, eliminated) {
+  if (!lobby?.hybrid && eliminated.length > 0) {
+    lobby.latestEliminationBatch = new Set(eliminated);
+  }
+}
+
+function eliminateOne(lobby, targetJid) {
   if (!lobby?.alivePlayers?.has(targetJid)) {
     return [];
   }
@@ -28,16 +34,25 @@ export function eliminatePlayer(lobby, targetJid) {
   return eliminated;
 }
 
+export function eliminatePlayer(lobby, targetJid) {
+  const eliminated = eliminateOne(lobby, targetJid);
+  recordEliminationBatch(lobby, eliminated);
+  return eliminated;
+}
+
 export function eliminatePlayers(lobby, targets) {
   const eliminated = [];
 
   for (const target of targets) {
-    for (const jid of eliminatePlayer(lobby, target)) {
+    for (const jid of eliminateOne(lobby, target)) {
       if (!eliminated.includes(jid)) {
         eliminated.push(jid);
       }
     }
   }
 
+  // Semua korban dalam satu resolusi dieliminasi sebagai satu kejadian,
+  // sehingga masing-masing tetap memiliki kesempatan mengirim Wasiat.
+  recordEliminationBatch(lobby, eliminated);
   return eliminated;
 }
