@@ -183,7 +183,7 @@ export async function handleSpyLobby(sock,group,sender,command,senderJids=[sende
       // Jangan pernah mengungkap label role (WARGA/SPY) di DM.
       // Pemain hanya menerima kata dan kategori; role tetap menjadi data internal.
       const secretWord = p.spy ? g.pair.b : g.pair.a;
-      const instruction = '🔐 KATA RAHASIA: '+secretWord+'\\nKategori: '+(g.pair.category||'Umum')+'\\n\\nKirim petunjuk melalui DM dengan format .spy clue ISI. Jangan menyebut kata rahasia secara langsung.';
+      const instruction = '🔐 KATA RAHASIA: '+secretWord+'\nKategori: '+(g.pair.category||'Umum')+'\n\nKirim petunjuk melalui DM dengan format .spy clue ISI. Jangan menyebut kata rahasia secara langsung.';
       try { await sock.sendMessage(p.jid,{text:instruction}); }
       catch(e) { failed.push(p.name); console.error('[SPY DM]',e); }
     }
