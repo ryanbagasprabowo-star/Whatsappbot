@@ -195,8 +195,10 @@ export async function handleSpyLobby(sock,group,sender,command,senderJids=[sende
   }
   if(action==='next') {
     if(g.status!=='playing'||g.phase!=='clue') { await sock.sendMessage(group,{text:'❌ Bukan fase petunjuk.'}); return true; }
+    const missing=aliveList(g).filter(p=>!g.clues.has(p.jid));
+    if(missing.length) { await sock.sendMessage(group,{text:'⏳ Belum semua pemain mengirim petunjuk melalui DM. Menunggu: '+missing.map(p=>p.name).join(', ')}); return true; }
     g.phase='voting';g.votes.clear();
-    await sock.sendMessage(group,{text:'🗳️ VOTING DIMULAI!\nPilih pemain dengan .spy vote NAMA. Semua pemain hidup harus voting.'}); return true;
+    await sock.sendMessage(group,{text:'🗳️ VOTING DIMULAI!\\nPilih pemain dengan .spy vote NAMA. Semua pemain hidup harus voting.'}); return true;
   }
   if(action==='vote') {
     if(g.status!=='playing'||g.phase!=='voting') { await sock.sendMessage(group,{text:'❌ Bukan fase voting.'}); return true; }
