@@ -180,7 +180,11 @@ export async function handleSpyLobby(sock,group,sender,command,senderJids=[sende
     g.status='playing'; g.phase='clue'; g.round=1; g.clues=new Map(); g.cluePublished=false;
     const failed=[];
     for(const p of g.players) {
-      try { await sock.sendMessage(p.jid,{text:'🔐 KATA RAHASIA: '+(p.spy?g.pair.b:g.pair.a)+'\nKategori: '+(g.pair.category||'Umum')+'\n\nKirim petunjuk melalui DM dengan format .spy clue ISI. Jangan menyebut kata rahasia secara langsung.'}); }
+      // Jangan pernah mengungkap label role (WARGA/SPY) di DM.
+      // Pemain hanya menerima kata dan kategori; role tetap menjadi data internal.
+      const secretWord = p.spy ? g.pair.b : g.pair.a;
+      const instruction = '🔐 KATA RAHASIA: '+secretWord+'\\nKategori: '+(g.pair.category||'Umum')+'\\n\\nKirim petunjuk melalui DM dengan format .spy clue ISI. Jangan menyebut kata rahasia secara langsung.';
+      try { await sock.sendMessage(p.jid,{text:instruction}); }
       catch(e) { failed.push(p.name); console.error('[SPY DM]',e); }
     }
     if(failed.length) {
