@@ -50,6 +50,7 @@ async function countVotes(sock,group,g) {
   if (top.length !== 1) {
     g.votes.clear();
     g.clues.clear();
+    g.cluePublished=false;
     g.phase='clue';
     g.round++;
     await sock.sendMessage(group,{text:'⚖️ Voting seri. Diskusi ronde '+g.round+' dimulai kembali. Semua pemain hidup dapat memberikan petunjuk baru dengan .spy clue ISI.'});
@@ -59,20 +60,45 @@ async function countVotes(sock,group,g) {
   out.alive=false;
   await sock.sendMessage(group,{text:'🗳️ '+out.name+' dieliminasi ('+high+' suara). Identitas: '+(out.spy?'SPY':'WARGA')+'\n\nPemain tersisa:\n'+listText(g)});
   if (await finish(sock,group,g)) return;
-  g.votes.clear(); g.clues.clear(); g.phase='clue'; g.round++;
+  g.votes.clear(); g.clues.clear(); g.cluePublished=false; g.phase='clue'; g.round++;
   await sock.sendMessage(group,{text:'💬 Ronde '+g.round+' dimulai. Kirim petunjuk dengan .spy clue ISI.'});
 }
 
 export async function handleSpyPrivateMessage(sock, senders, command) {
-  const m = String(command||'').trim().match(/^\.spy\s+guess\s+([\s\S]+)$/i);
-  if (!m) return false;
+  const text = String(command||'').trim();
+  const clueMatch = text.match(/^\.spy\s+clue\s+([\s\S]+)$/i);
+  const guessMatch = text.match(/^\.spy\s+guess\s+([\s\S]+)$/i);
+  if (!clueMatch && !guessMatch) return false;
+
   for (const [group,g] of games) {
-    if (!g.guess) continue;
-    const spy = g.players.find(p=>p.spy);
-    if (!spy || !senders.some(j=>same(j,spy.jid))) continue;
-    const correct = norm(m[1])===norm(g.pair.a);
-    await sock.sendMessage(group,{text:correct?'🏆 SPY MENANG MUTLAK! Tebakan benar: '+g.pair.a:'🏡 WARGA MENANG! Tebakan Spy salah. Kata warga: '+g.pair.a});
-    games.delete(group); return true;
+    const p = g.players.find(x => senders.some(j => same(j,x.jid)));
+    if (!p) continue;
+
+    if (clueMatch) {
+      if (g.status!=='playing' || g.phase!=='clue' || !p.alive) {
+        await sock.sendMessage(p.jid,{text:'❌ Kamu belum dapat mengirim petunjuk sekarang.'});
+        return true;
+      }
+      if (g.clues.has(p.jid)) {
+        await sock.sendMessage(p.jid,{text:'⚠️ Kamu sudah mengirim petunjuk pada ronde ini.'});
+        return true;
+      }
+      g.clues.set(p.jid,clueMatch[1].trim());
+      const remaining=aliveList(g).filter(x=>!g.clues.has(x.jid));
+      await sock.sendMessage(p.jid,{text:'✅ Petunjukmu sudah disimpan. '+(remaining.length?'Menunggu '+remaining.length+' pemain lain.':'Semua petunjuk terkumpul.')});
+      if (!remaining.length && !g.cluePublished) {
+        g.cluePublished=true;
+        const recap=aliveList(g).map((x,i)=>(i+1)+'. '+x.name+': '+g.clues.get(x.jid)).join('\n');
+        await sock.sendMessage(group,{text:'💬 REKAP PETUNJUK — RONDE '+g.round+'\n\n'+recap});
+      }
+      return true;
+    }
+
+    if (guessMatch && g.guess && p.spy) {
+      const correct=norm(guessMatch[1])===norm(g.pair.a);
+      await sock.sendMessage(group,{text:correct?'🏆 SPY MENANG MUTLAK! Tebakan benar: '+g.pair.a:'🏡 WARGA MENANG! Tebakan Spy salah. Kata warga: '+g.pair.a});
+      games.delete(group); return true;
+    }
   }
   return false;
 }
@@ -83,7 +109,7 @@ export async function handleSpyLobby(sock,group,sender,command,senderJids=[sende
   const rest=m[1]||'', action=(rest.match(/^(\S+)/)||[])[1]?.toLowerCase()||'', args=rest.slice(action.length).trim();
   const senders=[...new Set([sender,...(senderJids||[])].filter(Boolean))];
   if(!action||action==='help') {
-    await sock.sendMessage(group,{text:'🕵️ WHO’S SPY\n\nPemain: .spy join NAMA, .spy leave, .spy players, .spy clue ISI, .spy vote NAMA\n\nAdmin: .spy papanda, .spy start, .spy next, .spy stop, .spy add KATA1 dan KATA2, .spy remove KATA1 dan KATA2, .spy words\n\nTebakan akhir Spy melalui DM: .spy guess KATA'});
+    await sock.sendMessage(group,{text:'🕵️ WHO’S SPY\n\nPemain: .spy join NAMA, .spy leave, .spy players, DM .spy clue ISI, .spy vote NAMA\n\nAdmin: .spy papanda, .spy start, .spy next, .spy stop, .spy add KATA1 dan KATA2, .spy remove KATA1 dan KATA2, .spy words\n\nTebakan akhir Spy melalui DM: .spy guess KATA'});
     return true;
   }
   if(['admin','papanda','start','next','stop','add','remove','words'].includes(action)) {
@@ -119,7 +145,7 @@ export async function handleSpyLobby(sock,group,sender,command,senderJids=[sende
   }
   if(action==='papanda') {
     if(games.has(group)) { await sock.sendMessage(group,{text:'⚠️ Lobby Who’s Spy sudah tersedia.'}); return true; }
-    games.set(group,{status:'waiting',phase:'lobby',players:[],votes:new Map(),clues:new Set(),round:1});
+    games.set(group,{status:'waiting',phase:'lobby',players:[],votes:new Map(),clues:new Map(),cluePublished:false,round:1});
     await sock.sendMessage(group,{text:'🕵️ PAPANDA WHO’S SPY 🐼\n\n5–20 PEMAIN\nMayoritas mendapat kata yang sama, satu Spy mendapat kata berbeda yang berkaitan.\n\nKetik .spy join NAMA untuk bergabung. Lihat daftar dengan .spy players.'});
     return true;
   }
@@ -151,24 +177,21 @@ export async function handleSpyLobby(sock,group,sender,command,senderJids=[sende
     g.pair=d[Math.floor(Math.random()*d.length)];
     g.players.forEach(p=>{p.spy=false;p.alive=true;});
     g.players[Math.floor(Math.random()*g.players.length)].spy=true;
-    g.status='playing'; g.phase='clue'; g.round=1;
+    g.status='playing'; g.phase='clue'; g.round=1; g.clues=new Map(); g.cluePublished=false;
     const failed=[];
     for(const p of g.players) {
-      try { await sock.sendMessage(p.jid,{text:p.spy?'🕵️ KAMU SPY!\nKata rahasia: '+g.pair.b+'\nKategori: '+(g.pair.category||'Umum'):'👥 KAMU WARGA!\nKata rahasia: '+g.pair.a+'\nKategori: '+(g.pair.category||'Umum')+'\nBerikan petunjuk tanpa menyebut kata langsung.'}); }
+      try { await sock.sendMessage(p.jid,{text:'🔐 KATA RAHASIA: '+(p.spy?g.pair.b:g.pair.a)+'\nKategori: '+(g.pair.category||'Umum')+'\n\nKirim petunjuk melalui DM dengan format .spy clue ISI. Jangan menyebut kata rahasia secara langsung.'}); }
       catch(e) { failed.push(p.name); console.error('[SPY DM]',e); }
     }
     if(failed.length) {
       g.status='waiting';g.phase='lobby';g.players.forEach(p=>p.spy=false);delete g.pair;
       await sock.sendMessage(group,{text:'⚠️ DM gagal dikirim ke: '+failed.join(', ')+'. Minta mereka membuka chat bot, lalu coba .spy start lagi.'}); return true;
     }
-    await sock.sendMessage(group,{text:'🎮 WHO’S SPY DIMULAI!\nKata sudah dikirim melalui DM.\nRonde 1: kirim petunjuk dengan .spy clue ISI.\nAdmin gunakan .spy next untuk voting.'}); return true;
+    await sock.sendMessage(group,{text:'🎮 WHO’S SPY DIMULAI!\nKata sudah dikirim melalui DM.\nRonde 1: kirim petunjuk melalui DM dengan .spy clue ISI.\nAdmin gunakan .spy next untuk voting.'}); return true;
   }
   if(action==='clue') {
-    if(g.status!=='playing'||g.phase!=='clue') { await sock.sendMessage(group,{text:'❌ Bukan fase petunjuk.'}); return true; }
-    const p=player(g,sender);
-    if(!p||!p.alive) { await sock.sendMessage(group,{text:'❌ Hanya pemain hidup yang dapat memberi petunjuk.'}); return true; }
-    if(!args||g.clues.has(p.jid)) { await sock.sendMessage(group,{text:'Petunjuk kosong atau kamu sudah memberi petunjuk ronde ini.'}); return true; }
-    g.clues.add(p.jid); await sock.sendMessage(group,{text:'💬 PETUNJUK — '+p.name+'\n'+args}); return true;
+    await sock.sendMessage(group,{text:'📩 Kirim petunjuk melalui chat pribadi bot dengan format: .spy clue ISI. Setiap pemain hanya dapat mengirim satu petunjuk per ronde.'});
+    return true;
   }
   if(action==='next') {
     if(g.status!=='playing'||g.phase!=='clue') { await sock.sendMessage(group,{text:'❌ Bukan fase petunjuk.'}); return true; }
